@@ -125,18 +125,34 @@ document.getElementById("file").onchange=e=>{const f=e.target.files[0];if(f)f.te
 document.getElementById("q").oninput=e=>render(e.target.value.trim().toLowerCase());
 
 // ---------- Randomizer ----------
-const SK="gd_randomizer_players";
+// Ide másold be a Google Apps Script web app URL-jét (lásd Code.gs).
+const SHEET_URL="https://script.google.com/macros/s/AKfycby6-7nF55LzTX9zawp1HWTte-Jl0EFR9CcpC6FgvCyCTk2RdNO4TZTg31ni_gZsjFueLw/exec";
+let ROWS=[],SYNC="",SAVE_MSG="";
+function savedHTML(){
+  const m=new Map();ROWS.forEach(r=>{const k=String(r.player);if(!m.has(k))m.set(k,{name:k,maps:[]});m.get(k).maps.push(r)});
+  const s=[...m.values()].reverse();
+  return `<b>Mentett játékosok</b>${SYNC?`<div>${esc(SYNC)}</div>`:""}${s.map(p=>`<div><b>${esc(p.name)}</b> – ${p.maps.map(x=>"#"+esc(String(x.rank))+" "+esc(String(x.map))).join(", ")}</div>`).join("")}${!s.length&&!SYNC?"<div>Még nincs mentett eredmény.</div>":""}`}
+function showSaved(){const el=document.getElementById("saved");if(el)el.innerHTML=savedHTML()}
+async function fetchSaved(){
+  if(!SHEET_URL){SYNC="Nincs beállítva a Google Sheet URL (SHEET_URL).";return}
+  SYNC="Betöltés a táblázatból…";
+  try{const r=await fetch(SHEET_URL);if(!r.ok)throw 0;const d=await r.json();ROWS=Array.isArray(d)?d.filter(x=>x&&x.player):[];SYNC=""}
+  catch(e){SYNC="A táblázat nem érhető el."}}
+function postRow(name,x){
+  if(!SHEET_URL){SAVE_MSG="⚠ Nincs beállítva a Google Sheet URL, az eredmény nem mentődik.";return}
+  SAVE_MSG="Mentés…";
+  const upd=()=>{const e=document.getElementById("sv");if(e)e.textContent=SAVE_MSG};
+  fetch(SHEET_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({player:name,rank:x.rank,map:x.name})})
+    .then(()=>{SAVE_MSG="Elmentve a táblázatba ✓";ROWS.push({player:name,rank:x.rank,map:x.name});upd()})
+    .catch(()=>{SAVE_MSG="⚠ A mentés nem sikerült.";upd()})}
 const rd=document.getElementById("rd");
 const R={mode:"guest",name:"",pool:{main:true,ext:false,rest:false},cur:null,drawn:[],entry:null};
-function loadSaved(){try{return JSON.parse(localStorage.getItem(SK)||"[]")}catch(e){return[]}}
-function saveAll(a){try{localStorage.setItem(SK,JSON.stringify(a))}catch(e){}}
 function poolItems(){return LEVELS.filter(x=>(R.pool.main&&x.rank<=75)||(R.pool.ext&&x.rank>75&&x.rank<=150)||(R.pool.rest&&x.rank>150))}
 function cardHTML(x){return `<div class="card">${imgHTML(x,false)}${infoHTML(x)}</div>`}
 function countIn(a,b){return LEVELS.filter(x=>x.rank>=a&&x.rank<=b).length}
 function rSetup(err=""){
   const max=Math.max(0,...LEVELS.map(x=>x.rank));
   const ck=(k,t,n)=>`<label><input type="checkbox" data-p="${k}" ${R.pool[k]?"checked":""} ${n?"":"disabled"}> ${t} <span class="sub">(${n} pálya)</span></label>`;
-  const saved=loadSaved().slice().reverse();
   rd.innerHTML=`<h2>🎲 Randomizer</h2>
   <div class="seg"><label><input type="radio" name="m" value="guest" ${R.mode==="guest"?"checked":""}>Guest</label><label><input type="radio" name="m" value="player" ${R.mode==="player"?"checked":""}>Player</label></div>
   <div class="sub">Melyik pályák kerüljenek a poolba?</div>
@@ -144,16 +160,15 @@ function rSetup(err=""){
   <div id="nm" style="display:${R.mode==="player"?"block":"none"}"><div class="sub" style="margin-top:8px">Játékos neve</div><input type="text" id="pn" maxlength="40" placeholder="Név…" value="${esc(R.name)}"></div>
   <div class="err">${err}</div>
   <button class="rbtn" id="go" style="margin-left:0">Sorsolás indítása</button><button class="rbtn alt" id="cl" style="margin-left:8px">Bezár</button>
-  ${saved.length?`<div class="saved"><b>Mentett játékosok</b>${saved.map(s=>`<div><b>${esc(s.name)}</b> – ${s.maps.map(m=>"#"+m.rank+" "+esc(m.name)).join(", ")}</div>`).join("")}<button class="rbtn alt" id="clr">Mentések törlése</button></div>`:""}`;
+  <div class="saved" id="saved">${savedHTML()}</div>`;
   rd.querySelectorAll("input[name=m]").forEach(i=>i.onchange=()=>{R.mode=i.value;document.getElementById("nm").style.display=R.mode==="player"?"block":"none"});
   rd.querySelectorAll("[data-p]").forEach(i=>i.onchange=()=>{R.pool[i.dataset.p]=i.checked});
   document.getElementById("cl").onclick=()=>rd.close();
-  const c=document.getElementById("clr");if(c)c.onclick=()=>{saveAll([]);rSetup()};
   document.getElementById("go").onclick=()=>{
     if(R.mode==="player"){R.name=document.getElementById("pn").value.trim();if(!R.name)return rSetup("Add meg a neved a Player módhoz.")}
     if(!poolItems().length)return rSetup("Válassz ki legalább egy nem üres poolt.");
     R.cur=null;R.drawn=[];R.entry=null;
-    if(R.mode==="player"){const a=loadSaved();R.entry={name:R.name,date:new Date().toISOString(),maps:[]};a.push(R.entry);saveAll(a)}
+    SAVE_MSG="";if(R.mode==="player")R.entry={name:R.name,maps:[]};
     rRoll()}}
 function rRoll(){
   let c=poolItems();
@@ -163,19 +178,19 @@ function rRoll(){
   R.cur=c[Math.floor(Math.random()*c.length)];
   if(R.mode==="player"){
     R.drawn.push(R.cur.rank);R.entry.maps.push({rank:R.cur.rank,name:R.cur.name});
-    const a=loadSaved();a[a.length-1]=R.entry;saveAll(a)}
+    postRow(R.name,R.cur)}
   rResult()}
 function rResult(msg=""){
   rd.innerHTML=`<h2>${R.mode==="player"?"Játékos: "+esc(R.name):"Guest"}</h2>
   <div id="rres">${R.cur?cardHTML(R.cur):""}</div>
   ${msg?`<p class="err">${msg}</p>`:""}
-  ${R.mode==="player"?`<p class="sub">Eddig kapott pályák (mentve): ${R.entry.maps.map(m=>"#"+m.rank+" "+esc(m.name)).join(", ")}</p>`:""}
+  ${R.mode==="player"?`<p class="sub">Eddig kapott pályák (mentve): ${R.entry.maps.map(m=>"#"+m.rank+" "+esc(m.name)).join(", ")}</p><p class="sub" id="sv">${esc(SAVE_MSG)}</p>`:""}
   ${R.cur||R.mode==="player"?`<button class="rbtn" id="again" style="margin-left:0">${R.mode==="player"?"Következő pálya":"Újrasorsolás"}</button>`:""}
   <button class="rbtn alt" id="back" style="margin-left:8px">Beállítások</button><button class="rbtn alt" id="cl">Bezár</button>`;
   const ag=document.getElementById("again");if(ag)ag.onclick=rRoll;
   document.getElementById("back").onclick=()=>rSetup();
   document.getElementById("cl").onclick=()=>rd.close()}
-document.getElementById("rbtn").onclick=()=>{if(!LEVELS.length)return;rSetup();rd.showModal()};
+document.getElementById("rbtn").onclick=()=>{if(!LEVELS.length)return;fetchSaved().then(showSaved);rSetup();rd.showModal()};
 </script>
 </body>
 </html>
