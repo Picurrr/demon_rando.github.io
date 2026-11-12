@@ -22,6 +22,19 @@ input[type=search]{width:100%;max-width:340px;padding:10px 12px;margin-top:8px;b
 .name{font-weight:600;font-size:18px}
 #fallback{display:none;margin:16px 0;padding:14px;border:1px solid var(--bd);border-radius:10px;background:var(--card)}
 @media(max-width:560px){.card svg,.card img{width:120px}.rank{font-size:18px;min-width:48px}.name{font-size:15px}}
+
+.rbtn{padding:10px 18px;border:0;border-radius:10px;background:var(--ac);color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin:10px 0 0 8px}
+.rbtn.alt{background:var(--bd);color:var(--tx);margin:8px 8px 0 0}
+dialog{width:min(560px,94vw);border:1px solid var(--bd);border-radius:16px;background:var(--bg);color:var(--tx);padding:20px}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+dialog h2{margin:0 0 12px}dialog label{display:block;margin:6px 0;cursor:pointer}
+dialog input[type=text]{width:100%;padding:10px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--tx);font-size:15px;margin-top:6px}
+.seg{display:flex;gap:8px;margin:8px 0}.seg label{flex:1;margin:0;padding:10px;border:1px solid var(--bd);border-radius:10px;background:var(--card);text-align:center}
+.seg input{margin-right:6px}
+.err{color:var(--ac);font-size:14px;min-height:18px}
+.saved{margin-top:16px;font-size:14px;color:var(--mut);max-height:180px;overflow:auto}
+.saved div{padding:6px 0;border-top:1px solid var(--bd)}
+#rres .card{margin:12px 0}
 </style>
 </head>
 <body>
@@ -29,10 +42,12 @@ input[type=search]{width:100%;max-width:340px;padding:10px 12px;margin-top:8px;b
 <h1>Extreme <span>Demonok</span></h1>
 <p class="sub">A legnehezebbtől haladva – rang, név és splash art. Az adatok a levels.json fájlból jönnek.</p>
 <input id="q" type="search" placeholder="Keresés a pályák között…">
+<button class="rbtn" id="rbtn">🎲 Randomizer</button>
 <div id="cnt"></div>
 <div id="fallback">A böngésző nem tudta automatikusan betölteni a <b>levels.json</b> fájlt (fájlként megnyitott oldalnál ez normális). Válaszd ki kézzel: <input id="file" type="file" accept=".json"></div>
 </header>
 <main><div id="list"></div></main>
+<dialog id="rd"></dialog>
 <footer><p>levels.json mezői: <code>rank</code>, <code>name</code>, <code>thumbnail</code> (képlink; ha üres, generált splash art jelenik meg).</p></footer>
 <script>
 let LEVELS=[];
@@ -53,6 +68,59 @@ function setData(d){LEVELS=d.slice().sort((a,b)=>a.rank-b.rank);document.getElem
 fetch("levels.json").then(r=>{if(!r.ok)throw 0;return r.json()}).then(setData).catch(()=>{document.getElementById("fallback").style.display="block"});
 document.getElementById("file").onchange=e=>{const f=e.target.files[0];if(f)f.text().then(t=>setData(JSON.parse(t)))};
 document.getElementById("q").oninput=e=>render(e.target.value.trim().toLowerCase());
+
+// ---------- Randomizer ----------
+const SK="gd_randomizer_players";
+const rd=document.getElementById("rd");
+const R={mode:"guest",name:"",pool:{main:true,ext:false,rest:false},cur:null,drawn:[],entry:null};
+function loadSaved(){try{return JSON.parse(localStorage.getItem(SK)||"[]")}catch(e){return[]}}
+function saveAll(a){try{localStorage.setItem(SK,JSON.stringify(a))}catch(e){}}
+function poolItems(){return LEVELS.filter(x=>(R.pool.main&&x.rank<=75)||(R.pool.ext&&x.rank>75&&x.rank<=150)||(R.pool.rest&&x.rank>150))}
+function cardHTML(x){return `<div class="card">${x.thumbnail?`<img src="${esc(x.thumbnail)}" alt="">`:art(x.name,"r"+x.rank)}<div class="info"><div class="rank">#${x.rank}</div><div class="name">${esc(x.name)}</div></div></div>`}
+function countIn(a,b){return LEVELS.filter(x=>x.rank>=a&&x.rank<=b).length}
+function rSetup(err=""){
+  const max=Math.max(0,...LEVELS.map(x=>x.rank));
+  const ck=(k,t,n)=>`<label><input type="checkbox" data-p="${k}" ${R.pool[k]?"checked":""} ${n?"":"disabled"}> ${t} <span class="sub">(${n} pálya)</span></label>`;
+  const saved=loadSaved().slice().reverse();
+  rd.innerHTML=`<h2>🎲 Randomizer</h2>
+  <div class="seg"><label><input type="radio" name="m" value="guest" ${R.mode==="guest"?"checked":""}>Guest</label><label><input type="radio" name="m" value="player" ${R.mode==="player"?"checked":""}>Player</label></div>
+  <div class="sub">Melyik pályák kerüljenek a poolba?</div>
+  ${ck("main","Main list (1 – 75)",countIn(1,75))}${ck("ext","Extended list (76 – 150)",countIn(76,150))}${ck("rest",`Rest (151 – ${max>150?max:"x"})`,countIn(151,1e9))}
+  <div id="nm" style="display:${R.mode==="player"?"block":"none"}"><div class="sub" style="margin-top:8px">Játékos neve</div><input type="text" id="pn" maxlength="40" placeholder="Név…" value="${esc(R.name)}"></div>
+  <div class="err">${err}</div>
+  <button class="rbtn" id="go" style="margin-left:0">Sorsolás indítása</button><button class="rbtn alt" id="cl" style="margin-left:8px">Bezár</button>
+  ${saved.length?`<div class="saved"><b>Mentett játékosok</b>${saved.map(s=>`<div><b>${esc(s.name)}</b> – ${s.maps.map(m=>"#"+m.rank+" "+esc(m.name)).join(", ")}</div>`).join("")}<button class="rbtn alt" id="clr">Mentések törlése</button></div>`:""}`;
+  rd.querySelectorAll("input[name=m]").forEach(i=>i.onchange=()=>{R.mode=i.value;document.getElementById("nm").style.display=R.mode==="player"?"block":"none"});
+  rd.querySelectorAll("[data-p]").forEach(i=>i.onchange=()=>{R.pool[i.dataset.p]=i.checked});
+  document.getElementById("cl").onclick=()=>rd.close();
+  const c=document.getElementById("clr");if(c)c.onclick=()=>{saveAll([]);rSetup()};
+  document.getElementById("go").onclick=()=>{
+    if(R.mode==="player"){R.name=document.getElementById("pn").value.trim();if(!R.name)return rSetup("Add meg a neved a Player módhoz.")}
+    if(!poolItems().length)return rSetup("Válassz ki legalább egy nem üres poolt.");
+    R.cur=null;R.drawn=[];R.entry=null;
+    if(R.mode==="player"){const a=loadSaved();R.entry={name:R.name,date:new Date().toISOString(),maps:[]};a.push(R.entry);saveAll(a)}
+    rRoll()}}
+function rRoll(){
+  let c=poolItems();
+  if(R.mode==="player")c=c.filter(x=>!R.drawn.includes(x.rank));
+  else if(c.length>1&&R.cur)c=c.filter(x=>x.rank!==R.cur.rank);
+  if(!c.length){R.cur=null;return rResult("A pool elfogyott, nincs több pálya.")}
+  R.cur=c[Math.floor(Math.random()*c.length)];
+  if(R.mode==="player"){
+    R.drawn.push(R.cur.rank);R.entry.maps.push({rank:R.cur.rank,name:R.cur.name});
+    const a=loadSaved();a[a.length-1]=R.entry;saveAll(a)}
+  rResult()}
+function rResult(msg=""){
+  rd.innerHTML=`<h2>${R.mode==="player"?"Játékos: "+esc(R.name):"Guest"}</h2>
+  <div id="rres">${R.cur?cardHTML(R.cur):""}</div>
+  ${msg?`<p class="err">${msg}</p>`:""}
+  ${R.mode==="player"?`<p class="sub">Eddig kapott pályák (mentve): ${R.entry.maps.map(m=>"#"+m.rank+" "+esc(m.name)).join(", ")}</p>`:""}
+  ${R.cur||R.mode==="player"?`<button class="rbtn" id="again" style="margin-left:0">${R.mode==="player"?"Következő pálya":"Újrasorsolás"}</button>`:""}
+  <button class="rbtn alt" id="back" style="margin-left:8px">Beállítások</button><button class="rbtn alt" id="cl">Bezár</button>`;
+  const ag=document.getElementById("again");if(ag)ag.onclick=rRoll;
+  document.getElementById("back").onclick=()=>rSetup();
+  document.getElementById("cl").onclick=()=>rd.close()}
+document.getElementById("rbtn").onclick=()=>{if(!LEVELS.length)return;rSetup();rd.showModal()};
 </script>
 </body>
 </html>
