@@ -94,7 +94,9 @@ function art(n,i){const r=rng(hash(n)),h1=Math.floor(r()*360),h2=(h1+40+Math.flo
 const FAIL=new Set();
 function imgHTML(x,lazy){
   if(!x.thumbnail||FAIL.has(x.rank))return art(x.name,"s"+x.rank);
-  return `<img src="${esc(x.thumbnail)}" alt="${esc(x.name)}" data-n="${esc(x.name)}" data-r="${x.rank}" ${lazy?'loading="lazy"':""} onerror="imgFail(this)">`}
+  return `<img src="${esc(x.thumbnail)}" alt="${esc(x.name)}" data-n="${esc(x.name)}" data-r="${x.rank}" ${lazy?'loading="lazy"':""} onload="imgLoad(this)" onerror="imgFail(this)">`}
+const isYt=s=>/(img\.youtube\.com|i\.ytimg\.com)/.test(s);
+function imgLoad(img){if(isYt(img.src)&&img.naturalWidth===120&&img.naturalHeight===90)imgFail(img)}
 function imgFail(img){
   if(img.src.includes("maxresdefault")){img.src=img.src.replace("maxresdefault","hqdefault");return}
   img.onerror=null;
@@ -103,50 +105,50 @@ function imgFail(img){
   img.replaceWith(t.firstChild)}
 const norm=s=>String(s).toLowerCase().replace(/[^a-z0-9]/g,"");
 function ytId(u){
-  const m=String(u||"").match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/)([A-Za-z0-9_-]{11})/);
+  const m=String(u||"").match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/|\/vi\/)([A-Za-z0-9_-]{11})/);
   return m?m[1]:null}
+async function fetchPointercrate(){
+  const all=[];let after=0;
+  for(let page=0;page<10;page++){
+    const r=await fetch("https://pointercrate.com/api/v2/demons/listed/?limit=100&after="+after);
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const d=await r.json();
+    if(!Array.isArray(d)||!d.length)break;
+    all.push(...d);
+    const last=Math.max(...d.map(x=>x.position||0));
+    if(d.length<100||last<=after)break;
+    after=last}
+  return all}
 async function enrichThumbs(){
+  const info=new Map();
   try{
-    const all=[];let after=0;
-    for(let page=0;page<10;page++){
-      const r=await fetch("https://pointercrate.com/api/v2/demons/listed/?limit=100&after="+after);
-      if(!r.ok)throw new Error("HTTP "+r.status);
-      const d=await r.json();
-      if(!Array.isArray(d)||!d.length)break;
-      all.push(...d);
-      const last=Math.max(...d.map(x=>x.position||0));
-      if(d.length<100||last<=after)break;
-      after=last}
-    const info=new Map();
+    const all=await fetchPointercrate();
     all.sort((a,b)=>(a.position??1e9)-(b.position??1e9));
     all.forEach(l=>{const k=norm(l.name);if(!info.has(k))info.set(k,l)});
-    let n=0;
-    LEVELS.forEach(x=>{const l=info.get(norm(x.name));if(!l)return;
-      const vid=ytId(l.video);
-      if(!x.thumbnail&&vid){x.thumbnail="https://img.youtube.com/vi/"+vid+"/maxresdefault.jpg";n++}
-      if(!x.video&&l.video){x.video=l.video;n++}
+  }catch(e){console.warn("Pointercrate lekérés sikertelen, AREDL-adatokra támaszkodunk:",e)}
+  LEVELS.forEach(x=>{
+    const l=info.get(norm(x.name));
+    if(l){
+      if(x.pcId==null&&l.id!=null)x.pcId=l.id;
       const lid=l.level_id??l.levelId;
-      if((x.id==null||x.id==="")&&lid!=null){x.id=lid;n++}
+      if((x.id==null||x.id==="")&&lid!=null)x.id=lid;
       const v=l.verifier&&typeof l.verifier==="object"?l.verifier.name:l.verifier;
-      if(!x.verifier&&v){x.verifier=v;n++}});
-    if(n)render(document.getElementById("q").value.trim().toLowerCase());
-  }catch(e){console.warn("Pointercrate lekérés sikertelen, generált háttér marad:",e)}}
+      if(!x.verifier&&v)x.verifier=v}
+    if(!x.video){const v=(l&&l.video)||x.aVid;if(isUrl(v))x.video=v}
+    if(!x.thumbnail){
+      const id=ytId(l&&l.video)||ytId(l&&l.thumbnail)||ytId(x.aVid)||ytId(x.aThumb);
+      if(id)x.thumbnail="https://img.youtube.com/vi/"+id+"/maxresdefault.jpg";
+      else{const t=(l&&l.thumbnail)||x.aThumb;if(isUrl(t))x.thumbnail=t}}});
+  render(document.getElementById("q").value.trim().toLowerCase())}
 
-const isUrl=u=>/^https?:\/\//i.test(String(u||""));
-function infoHTML(x){
-  const nm=isUrl(x.video)?`<a href="${esc(x.video)}" target="_blank" rel="noopener noreferrer" title="Verification videó">${esc(x.name)}</a>`:esc(x.name);
-  return `<div class="info"><div class="rank">#${x.rank}</div><div><div class="name">${nm}</div>${x.verifier?`<div class="by">by ${esc(String(x.verifier))}</div>`:""}</div></div>${x.id!=null&&x.id!==""?`<div class="idc" data-id="${esc(String(x.id))}" title="Kattints a másoláshoz">ID: ${esc(String(x.id))}</div>`:""}`}
-document.addEventListener("click",e=>{
-  const t=e.target.closest(".idc");if(!t)return;
-  const id=t.dataset.id,old=t.textContent;
-  const done=()=>{t.textContent="Másolva!";setTimeout(()=>{t.textContent=old},1000)};
-  const fb=()=>{const a=document.createElement("textarea");a.value=id;a.style.position="fixed";a.style.opacity="0";document.body.appendChild(a);a.select();try{document.execCommand("copy");done()}catch(_){}a.remove()};
-  if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(id).then(done,fb);else fb()});
 function render(f=""){
  const l=document.getElementById("list"),items=LEVELS.filter(x=>x.name.toLowerCase().includes(f));
  l.innerHTML=items.map(x=>`<div class="card">${imgHTML(x,true)}${infoHTML(x)}</div>`).join("");
  document.getElementById("cnt").textContent=items.length+" / "+LEVELS.length+" pálya"}
 function setData(d){LEVELS=d.slice().sort((a,b)=>a.rank-b.rank);document.getElementById("fallback").style.display="none";render();enrichThumbs()}
+const pick=(l,keys)=>{for(const k of keys){const v=k.split(".").reduce((o,q)=>o&&o[q],l);if(v)return v}return ""};
+const A_VIDEO=["video","video_url","verification_video","verification.video_url","verification.video"];
+const A_THUMB=["thumbnail","thumbnail_url"];
 async function loadLevels(){
   try{
     const r=await fetch("https://api.aredl.net/v2/api/aredl/levels");
@@ -154,7 +156,7 @@ async function loadLevels(){
     let d=await r.json();
     if(!Array.isArray(d))d=d.data||d.levels||Object.values(d);
     const out=d.filter(l=>l&&l.name&&Number.isFinite(+(l.position??l.rank)))
-      .map(l=>({rank:+(l.position??l.rank),name:l.name,id:l.level_id??l.id,thumbnail:""}));
+      .map(l=>({rank:+(l.position??l.rank),name:l.name,id:l.level_id??l.id,thumbnail:"",aVid:pick(l,A_VIDEO),aThumb:pick(l,A_THUMB)}));
     if(!out.length)throw new Error("üres válasz");
     return out}
   catch(e){console.warn("Az AREDL API nem elérhető, a levels.json következik:",e)}
