@@ -71,7 +71,7 @@ dialog input[type=number]{width:110px;padding:10px;border-radius:10px;border:1px
 <body>
 <header>
 <h1>Extreme <span>Demonok</span></h1>
-<p class="sub">A legnehezebbtől haladva – rang, név és splash art. Az adatok a levels.json fájlból jönnek.</p>
+<p class="sub">A legnehezebbtől haladva – rang, név és splash art. A pályák adatai (rang, név, ID) az AREDL-ről jönnek.</p>
 <input id="q" type="search" placeholder="Keresés a pályák között…">
 <button class="rbtn" id="rbtn">🎲 Randomizer</button>
 <div id="cnt"></div>
@@ -79,7 +79,7 @@ dialog input[type=number]{width:110px;padding:10px;border-radius:10px;border:1px
 </header>
 <main><div id="list"></div></main>
 <dialog id="rd"></dialog>
-<footer><p>levels.json mezői: <code>rank</code>, <code>name</code>, <code>thumbnail</code> (képlink; ha üres, generált splash art jelenik meg).</p></footer>
+<footer><p>Ha az AREDL nem elérhető, a levels.json a tartalék. Mezői: <code>rank</code>, <code>name</code>, <code>thumbnail</code> (képlink; ha üres, generált splash art jelenik meg).</p></footer>
 <script>
 let LEVELS=[];
 const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -147,7 +147,19 @@ function render(f=""){
  l.innerHTML=items.map(x=>`<div class="card">${imgHTML(x,true)}${infoHTML(x)}</div>`).join("");
  document.getElementById("cnt").textContent=items.length+" / "+LEVELS.length+" pálya"}
 function setData(d){LEVELS=d.slice().sort((a,b)=>a.rank-b.rank);document.getElementById("fallback").style.display="none";render();enrichThumbs()}
-fetch("levels.json").then(r=>{if(!r.ok)throw 0;return r.json()}).then(setData).catch(()=>{document.getElementById("fallback").style.display="block"});
+async function loadLevels(){
+  try{
+    const r=await fetch("https://api.aredl.net/v2/api/aredl/levels");
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    let d=await r.json();
+    if(!Array.isArray(d))d=d.data||d.levels||Object.values(d);
+    const out=d.filter(l=>l&&l.name&&Number.isFinite(+(l.position??l.rank)))
+      .map(l=>({rank:+(l.position??l.rank),name:l.name,id:l.level_id??l.id,thumbnail:""}));
+    if(!out.length)throw new Error("üres válasz");
+    return out}
+  catch(e){console.warn("Az AREDL API nem elérhető, a levels.json következik:",e)}
+  const r=await fetch("levels.json");if(!r.ok)throw 0;return r.json()}
+loadLevels().then(setData).catch(()=>{document.getElementById("fallback").style.display="block"});
 document.getElementById("file").onchange=e=>{const f=e.target.files[0];if(f)f.text().then(t=>setData(JSON.parse(t)))};
 document.getElementById("q").oninput=e=>render(e.target.value.trim().toLowerCase());
 
