@@ -122,22 +122,33 @@ async function fetchPointercrate(){
 const LT="https://raw.githubusercontent.com/cdc-sys/level-thumbnails/main/thumbs/";
 const ytThumb=id=>"https://img.youtube.com/vi/"+id+"/maxresdefault.jpg";
 const curQ=()=>document.getElementById("q").value.trim().toLowerCase();
-async function enrichThumbs(){
-  // 1) minden az AREDL-ből, amit az ad
-  LEVELS.forEach(x=>{
-    if(!x.video&&isUrl(x.aVid))x.video=x.aVid;
-    if(!x.verifier&&x.aVerifier)x.verifier=x.aVerifier;
-    if(!x.thumbnail){const id=ytId(x.aVid)||ytId(x.aThumb);
-      if(id)x.thumbnail=ytThumb(id);else if(isUrl(x.aThumb))x.thumbnail=x.aThumb}});
-  render(curQ());
-  // 2) a hiányzókat a Pointercrate pótolja
-  if(LEVELS.some(x=>!x.video||!x.verifier||!x.thumbnail)){
+let PCINFO=new Map(),PC_READY=Promise.resolve(),BYRANK=new Map(),IO=null;
+const QUEUE=[];let ACTIVE=0;
+function pump(){while(ACTIVE<6&&QUEUE.length){const job=QUEUE.shift();ACTIVE++;job().finally(()=>{ACTIVE--;pump()})}}
+function enrichThumbs(){
+  PC_READY=fetchPointercrate().then(all=>{
+    all.sort((a,b)=>(a.position??1e9)-(b.position??1e9));
+    PCINFO=new Map();all.forEach(l=>{const k=norm(l.name);if(!PCINFO.has(k))PCINFO.set(k,l)})
+  }).catch(e=>console.warn("Pointercrate lekérés sikertelen:",e))}
+function ensureLevel(x){
+  if(x._p)return x._p;
+  x._p=new Promise(res=>{QUEUE.push(async()=>{
     try{
-      const all=await fetchPointercrate(),info=new Map();
-      all.sort((a,b)=>(a.position??1e9)-(b.position??1e9));
-      all.forEach(l=>{const k=norm(l.name);if(!info.has(k))info.set(k,l)});
-      LEVELS.forEach(x=>{
-        const l=info.get(norm(x.name));if(!l)return;
+      // 1) AREDL részletes adatlap
+      if(x.uuid){try{
+        const r=await fetch("https://api.aredl.net/v2/api/aredl/levels/"+x.uuid);
+        if(r.ok){
+          const d=await r.json(),vs=Array.isArray(d.verifications)?d.verifications:[];
+          const vv=vs.find(q=>isUrl(q.video_url)&&!q.hide_video);
+          if(!x.video&&vv)x.video=vv.video_url;
+          const sb=(vs[0]||{}).submitted_by;
+          if(!x.verifier&&sb)x.verifier=sb.global_name||sb.username||"";
+          if(!x.thumbnail){const id=ytId(x.video);if(id)x.thumbnail=ytThumb(id)}}
+      }catch(e){}}
+      // 2) hiányzókat a Pointercrate pótolja
+      await PC_READY;
+      const l=PCINFO.get(norm(x.name));
+      if(l){
         if(x.pcId==null&&l.id!=null)x.pcId=l.id;
         const lid=l.level_id??l.levelId;
         if((x.id==null||x.id==="")&&lid!=null)x.id=lid;
@@ -145,11 +156,23 @@ async function enrichThumbs(){
         if(!x.verifier&&v)x.verifier=v;
         if(!x.video&&isUrl(l.video))x.video=l.video;
         if(!x.thumbnail){const t=ytId(l.video)||ytId(l.thumbnail);
-          if(t)x.thumbnail=ytThumb(t);else if(isUrl(l.thumbnail))x.thumbnail=l.thumbnail}});
-    }catch(e){console.warn("Pointercrate lekérés sikertelen:",e)}}
-  // 3) utolsó tartalék: Level Thumbnails az AREDL-es ID alapján (hibánál saját háttér)
-  LEVELS.forEach(x=>{if(!x.thumbnail&&x.id!=null&&x.id!=="")x.thumbnail=LT+x.id+".png"});
-  render(curQ())}
+          if(t)x.thumbnail=ytThumb(t);else if(isUrl(l.thumbnail))x.thumbnail=l.thumbnail}}
+      // 3) Level Thumbnails tartalék
+      if(!x.thumbnail&&x.id!=null&&x.id!=="")x.thumbnail=LT+x.id+".png";
+    }finally{res()}});pump()});
+  return x._p}
+function refresh(rank){
+  const x=BYRANK.get(rank);if(!x)return;
+  document.querySelectorAll('.card[data-rank="'+rank+'"]').forEach(c=>{c.innerHTML=imgHTML(x,true)+infoHTML(x)})}
+function observeCards(){
+  BYRANK=new Map(LEVELS.map(x=>[x.rank,x]));
+  if(!("IntersectionObserver" in window)){LEVELS.forEach(x=>ensureLevel(x).then(()=>refresh(x.rank)));return}
+  if(IO)IO.disconnect();
+  else IO=new IntersectionObserver(es=>es.forEach(en=>{
+    if(!en.isIntersecting)return;IO.unobserve(en.target);
+    const x=BYRANK.get(+en.target.dataset.rank);if(!x)return;
+    const had=!!x._p;ensureLevel(x).then(()=>{if(!had)refresh(x.rank)})}),{rootMargin:"400px"});
+  document.querySelectorAll("#list .card").forEach(c=>IO.observe(c))}
 
 const isUrl=u=>/^https?:\/\//i.test(String(u||""));
 function infoHTML(x){
@@ -165,9 +188,10 @@ document.addEventListener("click",e=>{
   if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(id).then(done,fb);else fb()});
 function render(f=""){
  const l=document.getElementById("list"),items=LEVELS.filter(x=>x.name.toLowerCase().includes(f));
- l.innerHTML=items.map(x=>`<div class="card">${imgHTML(x,true)}${infoHTML(x)}</div>`).join("");
+ l.innerHTML=items.map(x=>`<div class="card" data-rank="${x.rank}">${imgHTML(x,true)}${infoHTML(x)}</div>`).join("");
+ observeCards();;
  document.getElementById("cnt").textContent=items.length+" / "+LEVELS.length+" pálya"}
-function setData(d){LEVELS=d.slice().sort((a,b)=>a.rank-b.rank);document.getElementById("fallback").style.display="none";render();enrichThumbs()}
+function setData(d){LEVELS=d.slice().sort((a,b)=>a.rank-b.rank);document.getElementById("fallback").style.display="none";enrichThumbs();render()}
 const pick=(l,keys)=>{for(const k of keys){const v=k.split(".").reduce((o,q)=>o&&o[q],l);if(v&&typeof v==="string")return v}return ""};
 const A_VIDEO=["video","video_url","verification_video","verification.video_url","verification.video","verifications.0.video_url"];
 const A_VERIF=["verifier.global_name","verifier.name","verifier","verification.submitted_by.global_name","verification.submitted_by.name","verifications.0.submitted_by.global_name"];
@@ -179,7 +203,7 @@ async function loadLevels(){
     let d=await r.json();
     if(!Array.isArray(d))d=d.data||d.levels||Object.values(d);
     const out=d.filter(l=>l&&l.name&&Number.isFinite(+(l.position??l.rank)))
-      .map(l=>({rank:+(l.position??l.rank),name:l.name,id:l.level_id??l.id,thumbnail:"",aVid:pick(l,A_VIDEO),aThumb:pick(l,A_THUMB),aVerifier:pick(l,A_VERIF)}));
+      .map(l=>({rank:+(l.position??l.rank),name:l.name,id:l.level_id,uuid:l.id,thumbnail:"",aVid:"",aThumb:"",aVerifier:""}));
     if(!out.length)throw new Error("üres válasz");
     return out}
   catch(e){console.warn("Az AREDL API nem elérhető, a levels.json következik:",e)}
@@ -214,7 +238,7 @@ const R={mode:"guest",name:"",pool:{main:true,ext:false,rest:false},custom:{on:f
 function poolItems(){
   if(R.custom.on){const lo=Math.min(R.custom.from,R.custom.to),hi=Math.max(R.custom.from,R.custom.to);return LEVELS.filter(x=>x.rank>=lo&&x.rank<=hi)}
   return LEVELS.filter(x=>(R.pool.main&&x.rank<=75)||(R.pool.ext&&x.rank>75&&x.rank<=150)||(R.pool.rest&&x.rank>150))}
-function cardHTML(x){return `<div class="card">${imgHTML(x,false)}${infoHTML(x)}</div>`}
+function cardHTML(x){return `<div class="card" data-rank="${x.rank}">${imgHTML(x,false)}${infoHTML(x)}</div>`}
 function countIn(a,b){return LEVELS.filter(x=>x.rank>=a&&x.rank<=b).length}
 function keepInputs(){
   const pn=document.getElementById("pn");if(pn)R.name=pn.value;
@@ -280,7 +304,8 @@ function rResult(msg=""){
   <button class="rbtn alt" id="back" style="margin-left:8px">Beállítások</button><button class="rbtn alt" id="cl">Bezár</button>`;
   const ag=document.getElementById("again");if(ag)ag.onclick=rRoll;
   document.getElementById("back").onclick=()=>rSetup();
-  document.getElementById("cl").onclick=()=>rd.close()}
+  document.getElementById("cl").onclick=()=>rd.close();
+  if(R.cur){const c=R.cur;ensureLevel(c).then(()=>refresh(c.rank))}}
 document.getElementById("rbtn").onclick=()=>{if(!LEVELS.length)return;fetchSaved().then(showSaved);rSetup();rd.showModal()};
 </script>
 </body>
