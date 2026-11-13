@@ -66,12 +66,31 @@ dialog input[type=number]{width:110px;padding:10px;border-radius:10px;border:1px
 .saved{margin-top:30px;max-height:220px}
 #rres .card{margin:20px 0}
 @media(max-width:560px){.opts{grid-template-columns:1fr}dialog{padding:24px 20px}}
+#gate{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px}
+.gbox{width:min(380px,100%);text-align:center}
+.gbox input{width:100%;padding:14px;border-radius:12px;border:1px solid var(--bd);background:var(--card);color:var(--tx);font-size:16px;text-align:center;margin-top:18px}
+.gbox .rbtn{width:100%;margin:14px 0 0}
+.gguest{display:inline-block;margin-top:22px;font-size:12px;color:var(--mut);text-decoration:none}
+.gguest:hover{color:var(--ac)}
+body.gated header,body.gated main,body.gated footer{display:none}
+#who a{color:var(--ac);margin-left:8px}
+.who{font-size:13px;color:var(--mut);margin-top:16px}
+#tmbox input{margin-top:10px}
 </style>
 </head>
 <body>
+<div id="gate"><div class="gbox">
+<h1>Extreme <span>Demonok</span></h1>
+<p class="sub">Add meg a felhasználóneved a belépéshez.</p>
+<input type="text" id="gu" maxlength="30" placeholder="Felhasználónév" autocomplete="off">
+<button class="rbtn" id="gb">Belépés</button>
+<div class="err" id="ge"></div>
+<a href="#" class="gguest" id="gg">Continue as Guest</a>
+</div></div>
 <header>
 <h1>Extreme <span>Demonok</span></h1>
 <p class="sub">A legnehezebbtől haladva – rang, név és splash art. A pályák adatai (rang, név, ID) az AREDL-ről jönnek.</p>
+<div id="who" class="sub" style="margin-top:6px"></div>
 <input id="q" type="search" placeholder="Keresés a pályák között…">
 <button class="rbtn" id="rbtn">🎲 Randomizer</button>
 <div id="cnt"></div>
@@ -234,14 +253,21 @@ function postRow(name,x){
     .then(()=>{SAVE_MSG="Elmentve a táblázatba ✓";ROWS.push({player:name,rank:x.rank,map:x.name});upd()})
     .catch(()=>{SAVE_MSG="⚠ A mentés nem sikerült.";upd()})}
 const rd=document.getElementById("rd");
-const R={mode:"guest",name:"",pool:{main:true,ext:false,rest:false},custom:{on:false,from:1,to:75},cur:null,drawn:[],entry:null};
+let U=null;
+const R={mode:"solo",team:"",members:"",pool:{main:true,ext:false,rest:false},custom:{on:false,from:1,to:75},cur:null,drawn:[],entry:null};
 function poolItems(){
   if(R.custom.on){const lo=Math.min(R.custom.from,R.custom.to),hi=Math.max(R.custom.from,R.custom.to);return LEVELS.filter(x=>x.rank>=lo&&x.rank<=hi)}
   return LEVELS.filter(x=>(R.pool.main&&x.rank<=75)||(R.pool.ext&&x.rank>75&&x.rank<=150)||(R.pool.rest&&x.rank>150))}
 function cardHTML(x){return `<div class="card" data-rank="${x.rank}">${imgHTML(x,false)}${infoHTML(x)}</div>`}
 function countIn(a,b){return LEVELS.filter(x=>x.rank>=a&&x.rank<=b).length}
+const SAVING=()=>!!U&&!U.guest;
+function labelOf(){
+  if(R.mode!=="team")return U.name;
+  const ms=[U.name,...R.members.split(",").map(s=>s.trim()).filter(Boolean)];
+  return ("Csapat: "+R.team.trim()+" ("+ms.join(", ")+")").slice(0,120)}
 function keepInputs(){
-  const pn=document.getElementById("pn");if(pn)R.name=pn.value;
+  const tn=document.getElementById("tn"),tm=document.getElementById("tm");
+  if(tn)R.team=tn.value;if(tm)R.members=tm.value;
   const f=document.getElementById("cf"),t=document.getElementById("ct");
   if(f)R.custom.from=parseInt(f.value)||0;if(t)R.custom.to=parseInt(t.value)||0}
 function rangeInfo(){
@@ -252,10 +278,15 @@ function rangeInfo(){
 function rSetup(err=""){
   const max=Math.max(0,...LEVELS.map(x=>x.rank)),C=R.custom;
   const opt=(k,t,s,n)=>`<div class="opt ${R.pool[k]&&!C.on?"on":""} ${C.on||!n?"off":""}" data-k="${k}"><b>${t}</b><span>${s}</span><em>${n} pálya</em></div>`;
+  const seg=(m,t)=>`<label data-m="${m}" class="${R.mode===m?"on":""}"><input type="radio" name="m" value="${m}" ${R.mode===m?"checked":""}>${t}</label>`;
   rd.innerHTML=`<h2>🎲 Randomizer</h2>
-  <div class="lbl">Ki vagy?</div>
-  <div class="seg"><label data-m="guest" class="${R.mode==="guest"?"on":""}"><input type="radio" name="m" value="guest" ${R.mode==="guest"?"checked":""}>Guest</label><label data-m="player" class="${R.mode==="player"?"on":""}"><input type="radio" name="m" value="player" ${R.mode==="player"?"checked":""}>Player</label></div>
-  <div id="nm" style="display:${R.mode==="player"?"block":"none"}"><input type="text" id="pn" maxlength="40" placeholder="Játékos neve…" value="${esc(R.name)}"></div>
+  <div class="who">Bejelentkezve: <b>${esc(U.name)}</b>${U.guest?" (vendég – az eredmények nem mentődnek)":""}</div>
+  <div class="lbl">Játékmód</div>
+  <div class="seg">${seg("solo","Egyjátékos")}${seg("team","Csapat")}</div>
+  <div id="tmbox" style="display:${R.mode==="team"?"block":"none"}">
+    <input type="text" id="tn" maxlength="30" placeholder="Csapat neve${SAVING()?"":" (nem kötelező)"}" value="${esc(R.team)}">
+    <input type="text" id="tm" maxlength="60" placeholder="További tagok, vesszővel elválasztva" value="${esc(R.members)}">
+  </div>
   <div class="lbl">Melyik pályák közül sorsoljunk?</div>
   <div class="opts">
     ${opt("main","Main list","1 – 75",countIn(1,75))}${opt("ext","Extended list","76 – 150",countIn(76,150))}${opt("rest","Rest",`151 – ${max>150?max:"x"}`,countIn(151,1e9))}
@@ -266,7 +297,7 @@ function rSetup(err=""){
   <div class="err">${err}</div>
   <div class="acts"><button class="rbtn" id="go">Sorsolás indítása</button><button class="rbtn alt" id="cl">Bezár</button></div>
   <div class="saved" id="saved">${savedHTML()}</div>`;
-  rd.querySelectorAll(".seg label").forEach(l=>l.onclick=e=>{e.preventDefault();R.mode=l.dataset.m;rd.querySelectorAll(".seg label").forEach(x=>{const on=x===l;x.classList.toggle("on",on);x.querySelector("input").checked=on});document.getElementById("nm").style.display=R.mode==="player"?"block":"none"});
+  rd.querySelectorAll(".seg label").forEach(l=>l.onclick=e=>{e.preventDefault();R.mode=l.dataset.m;rd.querySelectorAll(".seg label").forEach(x=>{const on=x===l;x.classList.toggle("on",on);x.querySelector("input").checked=on});document.getElementById("tmbox").style.display=R.mode==="team"?"block":"none"});
   rd.querySelectorAll(".opt").forEach(o=>o.onclick=e=>{
     if(e.target.closest("input"))return;
     const k=o.dataset.k;keepInputs();
@@ -278,35 +309,53 @@ function rSetup(err=""){
   document.getElementById("cl").onclick=()=>rd.close();
   document.getElementById("go").onclick=()=>{
     keepInputs();
-    if(R.mode==="player"&&!R.name.trim())return rSetup("Add meg a neved a Player módhoz.");
-    R.name=R.name.trim();
+    if(R.mode==="team"&&SAVING()&&!R.team.trim())return rSetup("Add meg a csapat nevét.");
     if(C.on&&(C.from<1||C.to<1))return rSetup("Adj meg érvényes tartományt (pálya sorszámok).");
     if(!poolItems().length)return rSetup(C.on?"Ebben a tartományban nincs pálya.":"Válassz ki legalább egy nem üres poolt.");
     R.cur=null;R.drawn=[];R.entry=null;
-    SAVE_MSG="";if(R.mode==="player")R.entry={name:R.name,maps:[]};
+    SAVE_MSG="";if(SAVING())R.entry={maps:[]};
     rRoll()}}
 function rRoll(){
   let c=poolItems();
-  if(R.mode==="player")c=c.filter(x=>!R.drawn.includes(x.rank));
+  if(SAVING())c=c.filter(x=>!R.drawn.includes(x.rank));
   else if(c.length>1&&R.cur)c=c.filter(x=>x.rank!==R.cur.rank);
   if(!c.length){R.cur=null;return rResult("A pool elfogyott, nincs több pálya.")}
   R.cur=c[Math.floor(Math.random()*c.length)];
-  if(R.mode==="player"){
+  if(SAVING()){
     R.drawn.push(R.cur.rank);R.entry.maps.push({rank:R.cur.rank,name:R.cur.name});
-    postRow(R.name,R.cur)}
+    postRow(labelOf(),R.cur)}
   rResult()}
 function rResult(msg=""){
-  rd.innerHTML=`<h2>${R.mode==="player"?"Játékos: "+esc(R.name):"Guest"}</h2>
+  const who=R.mode==="team"?"Csapat"+(R.team.trim()?": "+esc(R.team.trim()):""):"Egyjátékos: "+esc(U.name);
+  rd.innerHTML=`<h2>${who}</h2>
   <div id="rres">${R.cur?cardHTML(R.cur):""}</div>
   ${msg?`<p class="err">${msg}</p>`:""}
-  ${R.mode==="player"?`<p class="sub">Eddig kapott pályák (mentve): ${R.entry.maps.map(m=>"#"+m.rank+" "+esc(m.name)).join(", ")}</p><p class="sub" id="sv">${esc(SAVE_MSG)}</p>`:""}
-  ${R.cur||R.mode==="player"?`<button class="rbtn" id="again" style="margin-left:0">${R.mode==="player"?"Következő pálya":"Újrasorsolás"}</button>`:""}
+  ${SAVING()?`<p class="sub">Eddig kapott pályák (mentve): ${R.entry.maps.map(m=>"#"+m.rank+" "+esc(m.name)).join(", ")}</p><p class="sub" id="sv">${esc(SAVE_MSG)}</p>`:`<p class="sub">Vendégként az eredmények nem mentődnek.</p>`}
+  ${R.cur||SAVING()?`<button class="rbtn" id="again" style="margin-left:0">${SAVING()?"Következő pálya":"Újrasorsolás"}</button>`:""}
   <button class="rbtn alt" id="back" style="margin-left:8px">Beállítások</button><button class="rbtn alt" id="cl">Bezár</button>`;
   const ag=document.getElementById("again");if(ag)ag.onclick=rRoll;
   document.getElementById("back").onclick=()=>rSetup();
   document.getElementById("cl").onclick=()=>rd.close();
   if(R.cur){const c=R.cur;ensureLevel(c).then(()=>refresh(c.rank))}}
 document.getElementById("rbtn").onclick=()=>{if(!LEVELS.length)return;fetchSaved().then(showSaved);rSetup();rd.showModal()};
+
+// ---------- Belépés ----------
+try{U=JSON.parse(sessionStorage.getItem("gd_user")||"null")}catch(e){U=null}
+function applyUser(){
+  document.body.classList.toggle("gated",!U);
+  document.getElementById("gate").style.display=U?"none":"flex";
+  document.getElementById("who").innerHTML=U?`👤 <b>${esc(U.name)}</b>${U.guest?" (vendég)":""}<a href="#" id="lo">Kilépés</a>`:"";
+  const lo=document.getElementById("lo");
+  if(lo)lo.onclick=e=>{e.preventDefault();try{sessionStorage.removeItem("gd_user")}catch(_){}if(rd.open)rd.close();U=null;document.getElementById("gu").value="";applyUser()}}
+function setUser(u){U=u;try{sessionStorage.setItem("gd_user",JSON.stringify(u))}catch(e){}applyUser()}
+function doLogin(){
+  const n=document.getElementById("gu").value.trim();
+  if(!n){document.getElementById("ge").textContent="Add meg a felhasználóneved, vagy lépj be vendégként.";return}
+  setUser({name:n,guest:false})}
+document.getElementById("gb").onclick=doLogin;
+document.getElementById("gu").onkeydown=e=>{if(e.key==="Enter")doLogin()};
+document.getElementById("gg").onclick=e=>{e.preventDefault();setUser({name:"Guest",guest:true})};
+applyUser();
 </script>
 </body>
 </html>
