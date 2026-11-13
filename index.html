@@ -79,6 +79,13 @@ body.gated header,body.gated main,body.gated footer{display:none}
 #teamBox{display:none;position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:12px;z-index:20;max-width:min(300px,calc(100vw - 24px));padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--bd);box-shadow:0 6px 18px rgba(0,0,0,.25);font-size:13px;line-height:1.45}
 #teamBox .t{font-weight:700;color:var(--ac);margin-bottom:4px}
 body.gated #teamBox{display:none!important}
+.tabs{display:flex;gap:10px;margin:14px 0 4px;flex-wrap:wrap;align-items:center}
+.tab{padding:10px 18px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--tx);font-size:15px;font-weight:600;cursor:pointer;opacity:.65;transition:transform .15s,box-shadow .15s,border-color .15s,opacity .15s}
+.tab.on{opacity:1;border-color:var(--ac);transform:translateY(-2px);box-shadow:0 6px 14px rgba(0,0,0,.3)}
+#irev{display:none;margin:0 0 0 auto}
+#ilist{display:flex;flex-direction:column;gap:12px;margin:12px 0 30px}
+#ilist .by+.by{font-size:12px}
+.imsg{color:var(--mut);padding:20px 0}.imsg a{color:var(--ac)}
 </style>
 </head>
 <body>
@@ -95,12 +102,13 @@ body.gated #teamBox{display:none!important}
 <h1>Extreme <span>Demonok</span></h1>
 <p class="sub">A legnehezebbtől haladva – rang, név és splash art. A pályák adatai (rang, név, ID) az AREDL-ről jönnek.</p>
 <div id="who" class="sub" style="margin-top:6px"></div>
+<div class="tabs"><button class="tab on" data-t="ext">Extreme Demonok</button><button class="tab" data-t="ins">Insane Demonok</button><button class="rbtn alt" id="irev">Legnehezebb elöl ⇅</button></div>
 <input id="q" type="search" placeholder="Keresés a pályák között…">
 <button class="rbtn" id="rbtn">🎲 Randomizer</button>
 <div id="cnt"></div>
 <div id="fallback">A böngésző nem tudta automatikusan betölteni a <b>levels.json</b> fájlt (fájlként megnyitott oldalnál ez normális). Válaszd ki kézzel: <input id="file" type="file" accept=".json"></div>
 </header>
-<main><div id="list"></div></main>
+<main><div id="list"></div><div id="ilist" style="display:none"></div></main>
 <dialog id="rd"></dialog>
 <footer><p>Ha az AREDL nem elérhető, a levels.json a tartalék. Mezői: <code>rank</code>, <code>name</code>, <code>thumbnail</code> (képlink; ha üres, generált splash art jelenik meg).</p></footer>
 <script>
@@ -233,7 +241,7 @@ async function loadLevels(){
   const r=await fetch("levels.json");if(!r.ok)throw 0;return r.json()}
 loadLevels().then(setData).catch(()=>{document.getElementById("fallback").style.display="block"});
 document.getElementById("file").onchange=e=>{const f=e.target.files[0];if(f)f.text().then(t=>setData(JSON.parse(t)))};
-document.getElementById("q").oninput=e=>render(e.target.value.trim().toLowerCase());
+document.getElementById("q").oninput=e=>{const f=e.target.value.trim().toLowerCase();if(TAB==="ins"&&INS.loaded)irender(f);else if(TAB==="ext")render(f)};
 
 // ---------- Randomizer ----------
 // Ide másold be a Google Apps Script web app URL-jét (lásd Code.gs).
@@ -268,7 +276,7 @@ const SAVING=()=>!!U&&!U.guest;
 function labelOf(){
   if(R.mode!=="team")return U.name;
   const ms=[U.name,...R.members.split(",").map(s=>s.trim()).filter(Boolean)];
-  return ("Csapat: "+R.team.trim()+" ("+ms.join(", ")+")").slice(0,120)}
+  return "Csapat: "+R.team.trim().slice(0,24)+" ("+ms.join(", ").slice(0,50)+") | "+U.name}
 function keepInputs(){
   const tn=document.getElementById("tn"),tm=document.getElementById("tm");
   if(tn)R.team=tn.value;if(tm)R.members=tm.value;
@@ -288,8 +296,9 @@ function rSetup(err=""){
   <div class="lbl">Játékmód</div>
   <div class="seg">${seg("solo","Egyjátékos")}${seg("team","Csapat")}</div>
   <div id="tmbox" style="display:${R.mode==="team"?"block":"none"}">
-    <input type="text" id="tn" maxlength="30" placeholder="Csapat neve${SAVING()?"":" (nem kötelező)"}" value="${esc(R.team)}">
+    <input type="text" id="tn" maxlength="24" placeholder="Csapat neve${SAVING()?"":" (nem kötelező)"}" value="${esc(R.team)}">
     <input type="text" id="tm" maxlength="60" placeholder="További tagok, vesszővel elválasztva" value="${esc(R.members)}">
+    <div class="sub" style="margin-top:8px;font-size:12px">Minden csapattag a saját oldalán sorsol, ugyanazzal a csapatnévvel – a csapatban senki nem kap azonos pályát.</div>
   </div>
   <div class="lbl">Melyik pályák közül sorsoljunk?</div>
   <div class="opts">
@@ -319,11 +328,17 @@ function rSetup(err=""){
     R.cur=null;R.drawn=[];R.entry=null;
     SAVE_MSG="";if(SAVING())R.entry={maps:[]};
     rRoll()}}
-function rRoll(){
+function teamRows(name){
+  const k=String(name).trim().toLowerCase();
+  return ROWS.filter(r=>{const t=parseTeamRow(r);return t&&t.name.toLowerCase()===k})}
+async function rRoll(){
+  if(SAVING()&&R.mode==="team"&&SHEET_URL)await fetchSaved();   // friss állapot: mit kaptak már a többiek
   let c=poolItems();
-  if(SAVING())c=c.filter(x=>!R.drawn.includes(x.rank));
+  if(SAVING()){
+    c=c.filter(x=>!R.drawn.includes(x.rank));
+    if(R.mode==="team"){const taken=new Set(teamRows(R.team).map(r=>Number(r.rank)));c=c.filter(x=>!taken.has(x.rank))}}
   else if(c.length>1&&R.cur)c=c.filter(x=>x.rank!==R.cur.rank);
-  if(!c.length){R.cur=null;return rResult("A pool elfogyott, nincs több pálya.")}
+  if(!c.length){R.cur=null;return rResult(R.mode==="team"?"Nincs több szabad pálya a csapatnak ebben a poolban.":"A pool elfogyott, nincs több pálya.")}
   R.cur=c[Math.floor(Math.random()*c.length)];
   if(SAVING()){
     R.drawn.push(R.cur.rank);R.entry.maps.push({rank:R.cur.rank,name:R.cur.name});
@@ -343,28 +358,98 @@ function rResult(msg=""){
   if(R.cur){const c=R.cur;ensureLevel(c).then(()=>refresh(c.rank))}}
 document.getElementById("rbtn").onclick=()=>{if(!LEVELS.length)return;fetchSaved().then(showSaved);rSetup();rd.showModal()};
 
+// ---------- Insane Demonok ----------
+const SHEET_ID="15ehtAIpCR8s04qIb8zij9sTpUdGJbmAE_LDcfVA3tcU",SHEET_GID="1309758655";
+const SHEET_PAGE="https://docs.google.com/spreadsheets/d/"+SHEET_ID+"/edit?gid="+SHEET_GID;
+let TAB="ext";
+const INS={tiers:[],list:[],rev:true,loaded:false,busy:null};
+function parseCSV(t){const rows=[];let row=[],c="",q=false;
+  for(let i=0;i<t.length;i++){const ch=t[i];
+    if(q){if(ch==='"'){if(t[i+1]==='"'){c+='"';i++}else q=false}else c+=ch}
+    else if(ch==='"')q=true;
+    else if(ch===","){row.push(c);c=""}
+    else if(ch==="\n"||ch==="\r"){if(ch==="\r"&&t[i+1]==="\n")i++;row.push(c);rows.push(row);row=[];c=""}
+    else c+=ch}
+  if(c||row.length){row.push(c);rows.push(row)}return rows}
+function insBuild(){
+  const ts=INS.rev?INS.tiers.slice().reverse():INS.tiers;
+  INS.list=[];ts.forEach(t=>t.items.forEach(x=>INS.list.push({...x,tier:t.title})));
+  INS.list.forEach((x,i)=>x.rank=i+1)}
+function loadInsane(){
+  if(INS.loaded)return Promise.resolve(true);
+  if(INS.busy)return INS.busy;
+  const el=document.getElementById("ilist");
+  el.innerHTML='<div class="imsg">Betöltés a táblázatból…</div>';
+  INS.busy=(async()=>{
+    try{
+      const r=await fetch("https://docs.google.com/spreadsheets/d/"+SHEET_ID+"/gviz/tq?tqx=out:csv&gid="+SHEET_GID);
+      if(!r.ok)throw new Error("HTTP "+r.status);
+      const rows=parseCSV(await r.text()).slice(1);
+      let cur={title:"Egyéb",items:[]};INS.tiers=[cur];
+      rows.forEach(c=>{
+        const name=(c[0]||"").trim();if(!name)return;
+        if(/^↓.*↓$/.test(name)){cur={title:name.replace(/↓/g,"").trim(),items:[]};INS.tiers.push(cur);return}
+        cur.items.push({name,creator:(c[2]||"").trim(),length:(c[3]||"").trim(),skills:(c[4]||"").trim(),desc:(c[5]||"").trim()})});
+      INS.tiers=INS.tiers.filter(t=>t.items.length);
+      if(!INS.tiers.length)throw new Error("üres táblázat");
+      insBuild();INS.loaded=true;return true
+    }catch(e){
+      console.warn("Insane lista betöltése sikertelen:",e);
+      el.innerHTML='<div class="imsg">A táblázat nem tölthető be (nem nyilvános, vagy a böngésző blokkolja). <a href="'+SHEET_PAGE+'" target="_blank" rel="noopener noreferrer">Megnyitás a táblázatban</a> · <a href="#" id="iretry">Újra</a></div>';
+      const rt=document.getElementById("iretry");if(rt)rt.onclick=ev=>{ev.preventDefault();INS.busy=null;switchTab("ins")};
+      return false
+    }finally{INS.busy=null}})();
+  return INS.busy}
+function irender(f=""){
+  const l=document.getElementById("ilist");
+  const items=INS.list.filter(x=>x.name.toLowerCase().includes(f)||x.creator.toLowerCase().includes(f));
+  l.innerHTML=items.map(x=>`<div class="card" title="${esc(x.desc)}">${art(x.name,"i"+x.rank)}<div class="info"><div class="rank">#${x.rank}</div><div><div class="name">${esc(x.name)}</div><div class="by">by ${esc(x.creator||"?")}${x.length?" · "+esc(x.length):""}</div><div class="by">${esc(x.tier)}${x.skills?" · "+esc(x.skills):""}</div></div></div></div>`).join("");
+  document.getElementById("cnt").textContent=items.length+" / "+INS.list.length+" pálya"}
+function switchTab(t){
+  TAB=t;
+  document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on",b.dataset.t===t));
+  document.getElementById("list").style.display=t==="ext"?"":"none";
+  document.getElementById("ilist").style.display=t==="ins"?"":"none";
+  document.getElementById("rbtn").style.display=t==="ext"?"":"none";
+  document.getElementById("irev").style.display=t==="ins"?"inline-block":"none";
+  const f=document.getElementById("q").value.trim().toLowerCase();
+  if(t==="ins")loadInsane().then(ok=>{if(ok&&TAB==="ins")irender(f)});else render(f)}
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>switchTab(b.dataset.t));
+document.getElementById("irev").onclick=()=>{
+  INS.rev=!INS.rev;insBuild();
+  document.getElementById("irev").textContent=INS.rev?"Legnehezebb elöl ⇅":"Legkönnyebb elöl ⇅";
+  irender(document.getElementById("q").value.trim().toLowerCase())};
+
 // ---------- Csapat-érzékelés ----------
+function parseTeamRow(r){
+  const m=/^Csapat: (.+?) \((.*?)\)(?: \| (.+))?$/.exec(String(r.player||""));
+  if(!m)return null;
+  const members=m[2].split(",").map(s=>s.trim()).filter(Boolean);
+  return {name:m[1],members,who:(m[3]||members[0]||"").trim()}}
 function myTeam(){
   if(!SAVING())return null;
   const me=U.name.trim().toLowerCase();
-  const parse=r=>{const m=/^Csapat: (.+?) \((.*)\)$/.exec(String(r.player||""));
-    return m?{name:m[1],members:m[2].split(",").map(s=>s.trim()).filter(Boolean)}:null};
-  let hit=null;
+  let team=null;
   for(let i=ROWS.length-1;i>=0;i--){
-    const t=parse(ROWS[i]);
-    if(t&&t.members.some(s=>s.toLowerCase()===me)){hit={team:t,row:ROWS[i]};break}}
-  if(!hit)return null;
-  const key=hit.team.name.toLowerCase(),mates=new Set();
-  ROWS.forEach(r=>{const t=parse(r);
-    if(t&&t.name.toLowerCase()===key&&t.members.some(s=>s.toLowerCase()===me))
-      t.members.forEach(s=>{if(s.toLowerCase()!==me)mates.add(s)})});
-  return {name:hit.team.name,mates:[...mates],next:hit.row}}
+    const t=parseTeamRow(ROWS[i]);
+    if(t&&t.members.some(s=>s.toLowerCase()===me)){team=t;break}}
+  if(!team)return null;
+  const key=team.name.toLowerCase(),names=new Map(),latest=new Map();
+  ROWS.forEach(r=>{const t=parseTeamRow(r);
+    if(!t||t.name.toLowerCase()!==key||!t.members.some(s=>s.toLowerCase()===me))return;
+    t.members.forEach(s=>names.set(s.toLowerCase(),s));
+    latest.set(t.who.toLowerCase(),r)});
+  names.delete(me);
+  return {name:team.name,
+    mates:[...names.entries()].map(([k,n])=>({name:n,row:latest.get(k)||null})),
+    mine:latest.get(me)||null}}
 function updateTeamBox(){
   const el=document.getElementById("teamBox"),t=myTeam();
   if(!t){el.style.display="none";el.innerHTML="";return}
+  const mp=r=>r?"#"+esc(String(r.rank))+" "+esc(String(r.map)):"még nincs pályája";
   el.innerHTML=`<div class="t">👥 Csapat: ${esc(t.name)}</div>
-  <div>Csapattársaid: <b>${t.mates.length?t.mates.map(esc).join(", "):"–"}</b></div>
-  <div>Következő pályád: <b>#${esc(String(t.next.rank))} ${esc(String(t.next.map))}</b></div>`;
+  <div>Csapattársaid:${t.mates.length?t.mates.map(m=>`<div>• <b>${esc(m.name)}</b> – ${mp(m.row)}</div>`).join(""):" –"}</div>
+  <div style="margin-top:4px">Következő pályád: <b>${t.mine?mp(t.mine):"még nem sorsoltál"}</b></div>`;
   el.style.display="block"}
 async function refreshTeam(){
   if(!SAVING()||!SHEET_URL)return;
