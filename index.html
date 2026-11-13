@@ -261,16 +261,19 @@ function postRow(name,x){
   if(!SHEET_URL){SAVE_MSG="⚠ Nincs beállítva a Google Sheet URL, az eredmény nem mentődik.";return}
   SAVE_MSG="Mentés…";
   const upd=()=>{const e=document.getElementById("sv");if(e)e.textContent=SAVE_MSG};
-  fetch(SHEET_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({player:name,rank:x.rank,map:x.name})})
-    .then(()=>{SAVE_MSG="Elmentve a táblázatba ✓";ROWS.push({player:name,rank:x.rank,map:x.name});upd();updateTeamBox()})
+  fetch(SHEET_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({player:name,rank:x.rank,map:keyOf(x)})})
+    .then(()=>{SAVE_MSG="Elmentve a táblázatba ✓";ROWS.push({player:name,rank:x.rank,map:keyOf(x)});upd();updateTeamBox()})
     .catch(()=>{SAVE_MSG="⚠ A mentés nem sikerült.";upd()})}
 const rd=document.getElementById("rd");
 let U=null;
-const R={mode:"solo",team:"",members:"",pool:{main:true,ext:false,rest:false},custom:{on:false,from:1,to:75},cur:null,drawn:[],entry:null};
+const R={src:"ext",itiers:[],itiersInit:false,mode:"solo",team:"",members:"",pool:{main:true,ext:false,rest:false},custom:{on:false,from:1,to:75},cur:null,drawn:[],entry:null};
+function srcList(){return R.src==="ins"?INS.list:LEVELS}
+const keyOf=x=>x.tier!==undefined?x.name+" (Insane)":x.name;
 function poolItems(){
-  if(R.custom.on){const lo=Math.min(R.custom.from,R.custom.to),hi=Math.max(R.custom.from,R.custom.to);return LEVELS.filter(x=>x.rank>=lo&&x.rank<=hi)}
+  if(R.custom.on){const lo=Math.min(R.custom.from,R.custom.to),hi=Math.max(R.custom.from,R.custom.to);return srcList().filter(x=>x.rank>=lo&&x.rank<=hi)}
+  if(R.src==="ins")return INS.list.filter(x=>R.itiers.includes(x.tier));
   return LEVELS.filter(x=>(R.pool.main&&x.rank<=75)||(R.pool.ext&&x.rank>75&&x.rank<=150)||(R.pool.rest&&x.rank>150))}
-function cardHTML(x){return `<div class="card" data-rank="${x.rank}">${imgHTML(x,false)}${infoHTML(x)}</div>`}
+function cardHTML(x){if(x.tier!==undefined)return insCard(x,"r");return `<div class="card" data-rank="${x.rank}">${imgHTML(x,false)}${infoHTML(x)}</div>`}
 function countIn(a,b){return LEVELS.filter(x=>x.rank>=a&&x.rank<=b).length}
 const SAVING=()=>!!U&&!U.guest;
 function labelOf(){
@@ -285,24 +288,31 @@ function keepInputs(){
 function rangeInfo(){
   const el=document.getElementById("crange");if(!el)return;
   const C=R.custom,lo=Math.min(C.from,C.to),hi=Math.max(C.from,C.to);
-  const nm=r=>{const x=LEVELS.find(l=>l.rank===r);return x?"#"+r+" "+x.name:"#"+r};
+  const nm=r=>{const x=srcList().find(l=>l.rank===r);return x?"#"+r+" "+x.name:"#"+r};
   el.textContent=nm(lo)+" → "+nm(hi)+" · "+poolItems().length+" pálya"}
 function rSetup(err=""){
-  const max=Math.max(0,...LEVELS.map(x=>x.rank)),C=R.custom;
+  const max=Math.max(0,...srcList().map(x=>x.rank)),C=R.custom;
+  if(R.src==="ins"&&INS.loaded&&!R.itiersInit){R.itiers=INS.tiers.map(t=>t.title);R.itiersInit=true}
   const opt=(k,t,s,n)=>`<div class="opt ${R.pool[k]&&!C.on?"on":""} ${C.on||!n?"off":""}" data-k="${k}"><b>${t}</b><span>${s}</span><em>${n} pálya</em></div>`;
+  const poolOpts=R.src==="ins"
+    ?(INS.loaded?INS.tiers.map(t=>`<div class="opt ${R.itiers.includes(t.title)&&!C.on?"on":""} ${C.on?"off":""}" data-k="t:${esc(t.title)}"><b>${esc(t.title)}</b><em>${t.items.length} pálya</em></div>`).join(""):`<div class="imsg" style="grid-column:1/-1">Az Insane lista betöltése…</div>`)
+    :opt("main","Main list","1 – 75",countIn(1,75))+opt("ext","Extended list","76 – 150",countIn(76,150))+opt("rest","Rest",`151 – ${max>150?max:"x"}`,countIn(151,1e9));
+  const srcSeg=(s,t)=>`<label data-s="${s}" class="${R.src===s?"on":""}">${t}</label>`;
   const seg=(m,t)=>`<label data-m="${m}" class="${R.mode===m?"on":""}"><input type="radio" name="m" value="${m}" ${R.mode===m?"checked":""}>${t}</label>`;
   rd.innerHTML=`<h2>🎲 Randomizer</h2>
   <div class="who">Bejelentkezve: <b>${esc(U.name)}</b>${U.guest?" (vendég – az eredmények nem mentődnek)":""}</div>
   <div class="lbl">Játékmód</div>
-  <div class="seg">${seg("solo","Egyjátékos")}${seg("team","Csapat")}</div>
+  <div class="seg m">${seg("solo","Egyjátékos")}${seg("team","Csapat")}</div>
   <div id="tmbox" style="display:${R.mode==="team"?"block":"none"}">
     <input type="text" id="tn" maxlength="24" placeholder="Csapat neve${SAVING()?"":" (nem kötelező)"}" value="${esc(R.team)}">
     <input type="text" id="tm" maxlength="60" placeholder="További tagok, vesszővel elválasztva" value="${esc(R.members)}">
     <div class="sub" style="margin-top:8px;font-size:12px">Minden csapattag a saját oldalán sorsol, ugyanazzal a csapatnévvel – a csapatban senki nem kap azonos pályát.</div>
   </div>
+  <div class="lbl">Melyik listából sorsoljunk?</div>
+  <div class="seg s">${srcSeg("ext","Extreme Demonok")}${srcSeg("ins","Insane Demonok")}</div>
   <div class="lbl">Melyik pályák közül sorsoljunk?</div>
   <div class="opts">
-    ${opt("main","Main list","1 – 75",countIn(1,75))}${opt("ext","Extended list","76 – 150",countIn(76,150))}${opt("rest","Rest",`151 – ${max>150?max:"x"}`,countIn(151,1e9))}
+    ${poolOpts}
     <div class="opt wide ${C.on?"on":""}" data-k="custom"><b>Egyéni tartomány</b><span>Pontosan melyik pályától melyikig</span>
       <div class="range"><input type="number" id="cf" min="1" max="${max}" value="${C.from||""}"><i>–</i><input type="number" id="ct" min="1" max="${max}" value="${C.to||""}"></div>
       <div id="crange"></div></div>
@@ -310,11 +320,16 @@ function rSetup(err=""){
   <div class="err">${err}</div>
   <div class="acts"><button class="rbtn" id="go">Sorsolás indítása</button><button class="rbtn alt" id="cl">Bezár</button></div>
   <div class="saved" id="saved">${savedHTML()}</div>`;
-  rd.querySelectorAll(".seg label").forEach(l=>l.onclick=e=>{e.preventDefault();R.mode=l.dataset.m;rd.querySelectorAll(".seg label").forEach(x=>{const on=x===l;x.classList.toggle("on",on);x.querySelector("input").checked=on});document.getElementById("tmbox").style.display=R.mode==="team"?"block":"none"});
+  rd.querySelectorAll(".seg.s label").forEach(l=>l.onclick=e=>{
+    e.preventDefault();keepInputs();R.src=l.dataset.s;
+    if(R.src==="ins"&&!INS.loaded)loadInsane().then(()=>rSetup());
+    rSetup()});
+  rd.querySelectorAll(".seg.m label").forEach(l=>l.onclick=e=>{e.preventDefault();R.mode=l.dataset.m;rd.querySelectorAll(".seg.m label").forEach(x=>{const on=x===l;x.classList.toggle("on",on);x.querySelector("input").checked=on});document.getElementById("tmbox").style.display=R.mode==="team"?"block":"none"});
   rd.querySelectorAll(".opt").forEach(o=>o.onclick=e=>{
     if(e.target.closest("input"))return;
     const k=o.dataset.k;keepInputs();
     if(k==="custom")C.on=!C.on;
+    else if(k.startsWith("t:")){if(C.on)return;const t=k.slice(2);R.itiers=R.itiers.includes(t)?R.itiers.filter(x=>x!==t):[...R.itiers,t]}
     else{if(C.on||o.classList.contains("off"))return;R.pool[k]=!R.pool[k]}
     rSetup()});
   ["cf","ct"].forEach(id=>{const i=document.getElementById(id);if(i)i.oninput=()=>{keepInputs();rangeInfo()}});
@@ -335,18 +350,18 @@ async function rRoll(){
   if(SAVING()&&R.mode==="team"&&SHEET_URL)await fetchSaved();   // friss állapot: mit kaptak már a többiek
   let c=poolItems();
   if(SAVING()){
-    c=c.filter(x=>!R.drawn.includes(x.rank));
-    if(R.mode==="team"){const taken=new Set(teamRows(R.team).map(r=>Number(r.rank)));c=c.filter(x=>!taken.has(x.rank))}}
-  else if(c.length>1&&R.cur)c=c.filter(x=>x.rank!==R.cur.rank);
+    c=c.filter(x=>!R.drawn.includes(keyOf(x)));
+    if(R.mode==="team"){const taken=new Set(teamRows(R.team).map(r=>String(r.map)));c=c.filter(x=>!taken.has(keyOf(x)))}}
+  else if(c.length>1&&R.cur)c=c.filter(x=>keyOf(x)!==keyOf(R.cur));
   if(!c.length){R.cur=null;return rResult(R.mode==="team"?"Nincs több szabad pálya a csapatnak ebben a poolban.":"A pool elfogyott, nincs több pálya.")}
   R.cur=c[Math.floor(Math.random()*c.length)];
   if(SAVING()){
-    R.drawn.push(R.cur.rank);R.entry.maps.push({rank:R.cur.rank,name:R.cur.name});
+    R.drawn.push(keyOf(R.cur));R.entry.maps.push({rank:R.cur.rank,name:keyOf(R.cur)});
     postRow(labelOf(),R.cur)}
   rResult()}
 function rResult(msg=""){
   const who=R.mode==="team"?"Csapat"+(R.team.trim()?": "+esc(R.team.trim()):""):"Egyjátékos: "+esc(U.name);
-  rd.innerHTML=`<h2>${who}</h2>
+  rd.innerHTML=`<h2>${who}</h2><div class="sub">${R.src==="ins"?"Insane Demonok":"Extreme Demonok"}</div>
   <div id="rres">${R.cur?cardHTML(R.cur):""}</div>
   ${msg?`<p class="err">${msg}</p>`:""}
   ${SAVING()?`<p class="sub">Eddig kapott pályák (mentve): ${R.entry.maps.map(m=>"#"+m.rank+" "+esc(m.name)).join(", ")}</p><p class="sub" id="sv">${esc(SAVE_MSG)}</p>`:`<p class="sub">Vendégként az eredmények nem mentődnek.</p>`}
@@ -355,8 +370,8 @@ function rResult(msg=""){
   const ag=document.getElementById("again");if(ag)ag.onclick=rRoll;
   document.getElementById("back").onclick=()=>rSetup();
   document.getElementById("cl").onclick=()=>rd.close();
-  if(R.cur){const c=R.cur;ensureLevel(c).then(()=>refresh(c.rank))}}
-document.getElementById("rbtn").onclick=()=>{if(!LEVELS.length)return;fetchSaved().then(showSaved);rSetup();rd.showModal()};
+  if(R.cur&&R.cur.tier===undefined){const c=R.cur;ensureLevel(c).then(()=>refresh(c.rank))}}
+document.getElementById("rbtn").onclick=()=>{if(!LEVELS.length)return;R.src=TAB;fetchSaved().then(showSaved);rSetup();rd.showModal()};
 
 // ---------- Insane Demonok ----------
 const SHEET_ID="15ehtAIpCR8s04qIb8zij9sTpUdGJbmAE_LDcfVA3tcU",SHEET_GID="1309758655";
@@ -400,17 +415,17 @@ function loadInsane(){
       return false
     }finally{INS.busy=null}})();
   return INS.busy}
+function insCard(x,p){return `<div class="card" title="${esc(x.desc||"")}">${art(x.name,p+x.rank)}<div class="info"><div class="rank">#${x.rank}</div><div><div class="name">${esc(x.name)}</div><div class="by">by ${esc(x.creator||"?")}${x.length?" · "+esc(x.length):""}</div><div class="by">${esc(x.tier)}${x.skills?" · "+esc(x.skills):""}</div></div></div></div>`}
 function irender(f=""){
   const l=document.getElementById("ilist");
   const items=INS.list.filter(x=>x.name.toLowerCase().includes(f)||x.creator.toLowerCase().includes(f));
-  l.innerHTML=items.map(x=>`<div class="card" title="${esc(x.desc)}">${art(x.name,"i"+x.rank)}<div class="info"><div class="rank">#${x.rank}</div><div><div class="name">${esc(x.name)}</div><div class="by">by ${esc(x.creator||"?")}${x.length?" · "+esc(x.length):""}</div><div class="by">${esc(x.tier)}${x.skills?" · "+esc(x.skills):""}</div></div></div></div>`).join("");
+  l.innerHTML=items.map(x=>insCard(x,"i")).join("");
   document.getElementById("cnt").textContent=items.length+" / "+INS.list.length+" pálya"}
 function switchTab(t){
   TAB=t;
   document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on",b.dataset.t===t));
   document.getElementById("list").style.display=t==="ext"?"":"none";
   document.getElementById("ilist").style.display=t==="ins"?"":"none";
-  document.getElementById("rbtn").style.display=t==="ext"?"":"none";
   document.getElementById("irev").style.display=t==="ins"?"inline-block":"none";
   const f=document.getElementById("q").value.trim().toLowerCase();
   if(t==="ins")loadInsane().then(ok=>{if(ok&&TAB==="ins")irender(f)});else render(f)}
