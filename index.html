@@ -86,6 +86,10 @@ body.gated #teamBox{display:none!important}
 #ilist{display:flex;flex-direction:column;gap:12px;margin:12px 0 30px}
 #ilist .by+.by{font-size:12px}
 .imsg{color:var(--mut);padding:20px 0}.imsg a{color:var(--ac)}
+#teamBox{cursor:pointer}
+#teamBox:hover{border-color:var(--ac)}
+@keyframes flash{0%,60%{box-shadow:0 0 0 3px var(--ac),0 0 24px var(--ac)}100%{box-shadow:0 0 0 0 transparent}}
+.card.flash{animation:flash 2.2s ease-out}
 </style>
 </head>
 <body>
@@ -219,7 +223,7 @@ document.addEventListener("click",e=>{
   if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(id).then(done,fb);else fb()});
 function render(f=""){
  const l=document.getElementById("list"),items=LEVELS.filter(x=>x.name.toLowerCase().includes(f));
- l.innerHTML=items.map(x=>`<div class="card" data-rank="${x.rank}">${imgHTML(x,true)}${infoHTML(x)}</div>`).join("");
+ l.innerHTML=items.map(x=>`<div class="card" data-rank="${x.rank}" data-n="${esc(x.name)}">${imgHTML(x,true)}${infoHTML(x)}</div>`).join("");
  observeCards();;
  document.getElementById("cnt").textContent=items.length+" / "+LEVELS.length+" pálya"}
 function setData(d){LEVELS=d.slice().sort((a,b)=>a.rank-b.rank);document.getElementById("fallback").style.display="none";enrichThumbs();render()}
@@ -273,7 +277,7 @@ function poolItems(){
   if(R.custom.on){const lo=Math.min(R.custom.from,R.custom.to),hi=Math.max(R.custom.from,R.custom.to);return srcList().filter(x=>x.rank>=lo&&x.rank<=hi)}
   if(R.src==="ins")return INS.list.filter(x=>R.itiers.includes(x.tier));
   return LEVELS.filter(x=>(R.pool.main&&x.rank<=75)||(R.pool.ext&&x.rank>75&&x.rank<=150)||(R.pool.rest&&x.rank>150))}
-function cardHTML(x){if(x.tier!==undefined)return insCard(x,"r");return `<div class="card" data-rank="${x.rank}">${imgHTML(x,false)}${infoHTML(x)}</div>`}
+function cardHTML(x){if(x.tier!==undefined)return insCard(x,"r");return `<div class="card" data-rank="${x.rank}" data-n="${esc(x.name)}">${imgHTML(x,false)}${infoHTML(x)}</div>`}
 function countIn(a,b){return LEVELS.filter(x=>x.rank>=a&&x.rank<=b).length}
 const SAVING=()=>!!U&&!U.guest;
 function labelOf(){
@@ -415,7 +419,7 @@ function loadInsane(){
       return false
     }finally{INS.busy=null}})();
   return INS.busy}
-function insCard(x,p){return `<div class="card" title="${esc(x.desc||"")}">${art(x.name,p+x.rank)}<div class="info"><div class="rank">#${x.rank}</div><div><div class="name">${esc(x.name)}</div><div class="by">by ${esc(x.creator||"?")}${x.length?" · "+esc(x.length):""}</div><div class="by">${esc(x.tier)}${x.skills?" · "+esc(x.skills):""}</div></div></div></div>`}
+function insCard(x,p){return `<div class="card" data-n="${esc(x.name)}" title="${esc(x.desc||"")}">${art(x.name,p+x.rank)}<div class="info"><div class="rank">#${x.rank}</div><div><div class="name">${esc(x.name)}</div><div class="by">by ${esc(x.creator||"?")}${x.length?" · "+esc(x.length):""}</div><div class="by">${esc(x.tier)}${x.skills?" · "+esc(x.skills):""}</div></div></div></div>`}
 function irender(f=""){
   const l=document.getElementById("ilist");
   const items=INS.list.filter(x=>x.name.toLowerCase().includes(f)||x.creator.toLowerCase().includes(f));
@@ -464,8 +468,22 @@ function updateTeamBox(){
   const mp=r=>r?"#"+esc(String(r.rank))+" "+esc(String(r.map)):"még nincs pályája";
   el.innerHTML=`<div class="t">👥 Csapat: ${esc(t.name)}</div>
   <div>Csapattársaid:${t.mates.length?t.mates.map(m=>`<div>• <b>${esc(m.name)}</b> – ${mp(m.row)}</div>`).join(""):" –"}</div>
-  <div style="margin-top:4px">Következő pályád: <b>${t.mine?mp(t.mine):"még nem sorsoltál"}</b></div>`;
+  <div style="margin-top:4px">Következő pályád: <b>${t.mine?mp(t.mine):"még nem sorsoltál"}</b></div>${t.mine?'<div class="sub" style="font-size:11px;margin-top:6px">↳ kattints a pályádra ugráshoz</div>':""}`;
   el.style.display="block"}
+function goToMyMap(){
+  const t=myTeam();if(!t||!t.mine)return;
+  let name=String(t.mine.map),ins=false;
+  const m=/^(.*) \(Insane\)$/.exec(name);if(m){name=m[1];ins=true}
+  if(rd.open)rd.close();
+  document.getElementById("q").value="";
+  const go=()=>{
+    const c=[...document.querySelectorAll(ins?"#ilist .card":"#list .card")].find(x=>x.dataset.n===name);
+    if(!c)return;
+    c.scrollIntoView({behavior:"smooth",block:"center"});
+    c.classList.remove("flash");void c.offsetWidth;c.classList.add("flash")};
+  switchTab(ins?"ins":"ext");
+  if(ins)loadInsane().then(ok=>{if(ok)setTimeout(go,60)});else setTimeout(go,60)}
+document.getElementById("teamBox").onclick=goToMyMap;
 async function refreshTeam(){
   if(!SAVING()||!SHEET_URL)return;
   await fetchSaved();updateTeamBox();showSaved()}
