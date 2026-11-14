@@ -468,22 +468,26 @@ function updateTeamBox(){
   const mp=r=>r?"#"+esc(String(r.rank))+" "+esc(String(r.map)):"még nincs pályája";
   el.innerHTML=`<div class="t">👥 Csapat: ${esc(t.name)}</div>
   <div>Csapattársaid:${t.mates.length?t.mates.map(m=>`<div>• <b>${esc(m.name)}</b> – ${mp(m.row)}</div>`).join(""):" –"}</div>
-  <div style="margin-top:4px">Következő pályád: <b>${t.mine?mp(t.mine):"még nem sorsoltál"}</b></div>${t.mine?'<div class="sub" style="font-size:11px;margin-top:6px">↳ kattints a pályádra ugráshoz</div>':""}`;
+  <div style="margin-top:4px">Következő pályád: <b>${t.mine?mp(t.mine):"még nem sorsoltál"}</b></div>${t.mine?'<div class="sub" style="font-size:11px;margin-top:6px">↳ kattints a pályádhoz és az újrasorsoláshoz</div>':""}`;
   el.style.display="block"}
-function goToMyMap(){
+async function openMyResult(){
   const t=myTeam();if(!t||!t.mine)return;
   let name=String(t.mine.map),ins=false;
   const m=/^(.*) \(Insane\)$/.exec(name);if(m){name=m[1];ins=true}
-  if(rd.open)rd.close();
-  document.getElementById("q").value="";
-  const go=()=>{
-    const c=[...document.querySelectorAll(ins?"#ilist .card":"#list .card")].find(x=>x.dataset.n===name);
-    if(!c)return;
-    c.scrollIntoView({behavior:"smooth",block:"center"});
-    c.classList.remove("flash");void c.offsetWidth;c.classList.add("flash")};
-  switchTab(ins?"ins":"ext");
-  if(ins)loadInsane().then(ok=>{if(ok)setTimeout(go,60)});else setTimeout(go,60)}
-document.getElementById("teamBox").onclick=goToMyMap;
+  R.mode="team";R.team=t.name;R.members=t.mates.map(x=>x.name).join(", ");R.src=ins?"ins":"ext";
+  if(ins){
+    if(!INS.loaded&&!(await loadInsane()))return;
+    if(!R.itiersInit||!R.itiers.length){R.itiers=INS.tiers.map(x=>x.title);R.itiersInit=true}}
+  const cur=srcList().find(x=>x.name===name);if(!cur)return;
+  if(!poolItems().length){R.custom.on=false;if(ins)R.itiers=INS.tiers.map(x=>x.title);else R.pool.main=true}
+  const me=U.name.trim().toLowerCase();
+  const mine=teamRows(t.name).filter(r=>{const p=parseTeamRow(r);return p&&p.who.toLowerCase()===me});
+  R.drawn=mine.map(r=>String(r.map));
+  R.entry={maps:mine.map(r=>({rank:r.rank,name:String(r.map)}))};
+  R.cur=cur;SAVE_MSG="";
+  rResult();
+  if(!rd.open)rd.showModal()}
+document.getElementById("teamBox").onclick=openMyResult;
 async function refreshTeam(){
   if(!SAVING()||!SHEET_URL)return;
   await fetchSaved();updateTeamBox();showSaved()}
