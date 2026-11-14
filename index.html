@@ -270,7 +270,7 @@ function postRow(name,x){
     .catch(()=>{SAVE_MSG="⚠ A mentés nem sikerült.";upd()})}
 const rd=document.getElementById("rd");
 let U=null;
-const R={src:"ext",itiers:[],itiersInit:false,mode:"solo",team:"",members:"",pool:{main:true,ext:false,rest:false},custom:{on:false,from:1,to:75},cur:null,drawn:[],entry:null};
+const R={prefTeam:"",src:"ext",itiers:[],itiersInit:false,mode:"solo",team:"",members:"",pool:{main:true,ext:false,rest:false},custom:{on:false,from:1,to:75},cur:null,drawn:[],entry:null};
 function srcList(){return R.src==="ins"?INS.list:LEVELS}
 const keyOf=x=>x.tier!==undefined?x.name+" (Insane)":x.name;
 function poolItems(){
@@ -284,6 +284,16 @@ function labelOf(){
   if(R.mode!=="team")return U.name;
   const ms=[U.name,...R.members.split(",").map(s=>s.trim()).filter(Boolean)];
   return "Csapat: "+R.team.trim().slice(0,24)+" ("+ms.join(", ").slice(0,50)+") | "+U.name}
+const PREF_KEY=n=>"gd_pool_"+String(n).trim().toLowerCase();
+function savePoolPref(){
+  if(R.mode!=="team"||!R.team.trim())return;
+  try{localStorage.setItem(PREF_KEY(R.team),JSON.stringify({src:R.src,pool:R.pool,custom:R.custom,itiers:R.itiers,itiersInit:R.itiersInit}))}catch(e){}}
+function loadPoolPref(name){
+  try{
+    const p=JSON.parse(localStorage.getItem(PREF_KEY(name))||"null");if(!p)return false;
+    R.src=p.src==="ins"?"ins":"ext";Object.assign(R.pool,p.pool||{});Object.assign(R.custom,p.custom||{});
+    R.itiers=Array.isArray(p.itiers)?p.itiers:[];R.itiersInit=!!p.itiersInit;return true
+  }catch(e){return false}}
 function keepInputs(){
   const tn=document.getElementById("tn"),tm=document.getElementById("tm");
   if(tn)R.team=tn.value;if(tm)R.members=tm.value;
@@ -310,7 +320,7 @@ function rSetup(err=""){
   <div id="tmbox" style="display:${R.mode==="team"?"block":"none"}">
     <input type="text" id="tn" maxlength="24" placeholder="Csapat neve${SAVING()?"":" (nem kötelező)"}" value="${esc(R.team)}">
     <input type="text" id="tm" maxlength="60" placeholder="További tagok, vesszővel elválasztva" value="${esc(R.members)}">
-    <div class="sub" style="margin-top:8px;font-size:12px">Minden csapattag a saját oldalán sorsol, ugyanazzal a csapatnévvel – a csapatban senki nem kap azonos pályát.</div>
+    <div class="sub" style="margin-top:8px;font-size:12px">Minden csapattag a saját oldalán sorsol, ugyanazzal a csapatnévvel – a csapatban senki nem kap azonos pályát. A csapat poolját az oldal megjegyzi ezen a böngészőn.</div>
   </div>
   <div class="lbl">Melyik listából sorsoljunk?</div>
   <div class="seg s">${srcSeg("ext","Extreme Demonok")}${srcSeg("ins","Insane Demonok")}</div>
@@ -325,7 +335,7 @@ function rSetup(err=""){
   <div class="acts"><button class="rbtn" id="go">Sorsolás indítása</button><button class="rbtn alt" id="cl">Bezár</button></div>
   <div class="saved" id="saved">${savedHTML()}</div>`;
   rd.querySelectorAll(".seg.s label").forEach(l=>l.onclick=e=>{
-    e.preventDefault();keepInputs();R.src=l.dataset.s;
+    e.preventDefault();keepInputs();R.src=l.dataset.s;savePoolPref();
     if(R.src==="ins"&&!INS.loaded)loadInsane().then(()=>rSetup());
     rSetup()});
   rd.querySelectorAll(".seg.m label").forEach(l=>l.onclick=e=>{e.preventDefault();R.mode=l.dataset.m;rd.querySelectorAll(".seg.m label").forEach(x=>{const on=x===l;x.classList.toggle("on",on);x.querySelector("input").checked=on});document.getElementById("tmbox").style.display=R.mode==="team"?"block":"none"});
@@ -335,16 +345,21 @@ function rSetup(err=""){
     if(k==="custom")C.on=!C.on;
     else if(k.startsWith("t:")){if(C.on)return;const t=k.slice(2);R.itiers=R.itiers.includes(t)?R.itiers.filter(x=>x!==t):[...R.itiers,t]}
     else{if(C.on||o.classList.contains("off"))return;R.pool[k]=!R.pool[k]}
-    rSetup()});
+    savePoolPref();rSetup()});
   ["cf","ct"].forEach(id=>{const i=document.getElementById(id);if(i)i.oninput=()=>{keepInputs();rangeInfo()}});
   rangeInfo();
+  const tnEl=document.getElementById("tn");
+  if(tnEl)tnEl.onchange=()=>{
+    keepInputs();const k=R.team.trim().toLowerCase();
+    if(!k||R.prefTeam===k)return;R.prefTeam=k;
+    if(loadPoolPref(R.team)){if(R.src==="ins"&&!INS.loaded)loadInsane().then(()=>rSetup());rSetup()}};
   document.getElementById("cl").onclick=()=>rd.close();
   document.getElementById("go").onclick=()=>{
     keepInputs();
     if(R.mode==="team"&&SAVING()&&!R.team.trim())return rSetup("Add meg a csapat nevét.");
     if(C.on&&(C.from<1||C.to<1))return rSetup("Adj meg érvényes tartományt (pálya sorszámok).");
     if(!poolItems().length)return rSetup(C.on?"Ebben a tartományban nincs pálya.":"Válassz ki legalább egy nem üres poolt.");
-    R.cur=null;R.drawn=[];R.entry=null;
+    R.cur=null;R.drawn=[];R.entry=null;savePoolPref();
     SAVE_MSG="";if(SAVING())R.entry={maps:[]};
     rRoll()}}
 function teamRows(name){
@@ -365,7 +380,7 @@ async function rRoll(){
   rResult()}
 function rResult(msg=""){
   const who=R.mode==="team"?"Csapat"+(R.team.trim()?": "+esc(R.team.trim()):""):"Egyjátékos: "+esc(U.name);
-  rd.innerHTML=`<h2>${who}</h2><div class="sub">${R.src==="ins"?"Insane Demonok":"Extreme Demonok"}</div>
+  rd.innerHTML=`<h2>${who}</h2><div class="sub">${(R.cur?R.cur.tier!==undefined:R.src==="ins")?"Insane Demonok":"Extreme Demonok"}</div>
   <div id="rres">${R.cur?cardHTML(R.cur):""}</div>
   ${msg?`<p class="err">${msg}</p>`:""}
   ${SAVING()?`<p class="sub">Eddig kapott pályák (mentve): ${R.entry.maps.map(m=>"#"+m.rank+" "+esc(m.name)).join(", ")}</p><p class="sub" id="sv">${esc(SAVE_MSG)}</p>`:`<p class="sub">Vendégként az eredmények nem mentődnek.</p>`}
@@ -474,12 +489,13 @@ async function openMyResult(){
   const t=myTeam();if(!t||!t.mine)return;
   let name=String(t.mine.map),ins=false;
   const m=/^(.*) \(Insane\)$/.exec(name);if(m){name=m[1];ins=true}
-  R.mode="team";R.team=t.name;R.members=t.mates.map(x=>x.name).join(", ");R.src=ins?"ins":"ext";
-  if(ins){
-    if(!INS.loaded&&!(await loadInsane()))return;
-    if(!R.itiersInit||!R.itiers.length){R.itiers=INS.tiers.map(x=>x.title);R.itiersInit=true}}
-  const cur=srcList().find(x=>x.name===name);if(!cur)return;
-  if(!poolItems().length){R.custom.on=false;if(ins)R.itiers=INS.tiers.map(x=>x.title);else R.pool.main=true}
+  R.mode="team";R.team=t.name;R.members=t.mates.map(x=>x.name).join(", ");
+  const hasPref=loadPoolPref(t.name);R.prefTeam=t.name.trim().toLowerCase();
+  if(!hasPref)R.src=ins?"ins":"ext";
+  if((ins||R.src==="ins")&&!INS.loaded){const ok=await loadInsane();if(ins&&!ok)return}
+  if(R.src==="ins"&&INS.loaded&&(!R.itiersInit||!R.itiers.length)){R.itiers=INS.tiers.map(x=>x.title);R.itiersInit=true}
+  const cur=(ins?INS.list:LEVELS).find(x=>x.name===name);if(!cur)return;
+  if(!poolItems().length){R.custom.on=false;if(R.src==="ins")R.itiers=INS.tiers.map(x=>x.title);else R.pool.main=true}
   const me=U.name.trim().toLowerCase();
   const mine=teamRows(t.name).filter(r=>{const p=parseTeamRow(r);return p&&p.who.toLowerCase()===me});
   R.drawn=mine.map(r=>String(r.map));
