@@ -95,6 +95,17 @@ body.gated #teamBox{display:none!important}
 .cfg .lbl{margin:0 0 8px}.cfg .seg{margin-top:6px}.cfg .seg label{padding:12px 8px;font-size:14px}
 .cfg a{color:var(--ac)}
 #on{display:none}
+dialog#sm{width:min(1100px,96vw)}
+.smteams{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:18px;align-items:start}
+.smteam{border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:var(--card)}
+.smhead{padding:10px 14px;color:#fff;font-weight:700;text-align:center}
+.smpl{padding:7px 12px;font-weight:700;font-size:13px;color:#1E293B;margin-top:10px}
+.smwrap{overflow-x:auto}
+.smt{width:100%;border-collapse:collapse;font-size:12px}
+.smt th,.smt td{padding:5px 8px;border-bottom:1px solid var(--bd);text-align:left}
+.smt th{background:var(--bd);color:var(--tx);font-size:11px}
+.smt td.c,.smt th.c{text-align:center}
+.smbar{margin:30px 0 10px;padding:10px 14px;border-radius:10px;color:#fff;font-weight:700;text-align:center;font-size:14px}
 </style>
 </head>
 <body>
@@ -113,13 +124,14 @@ body.gated #teamBox{display:none!important}
 <div id="who" class="sub" style="margin-top:6px"></div>
 <div class="tabs"><button class="tab on" data-t="ext">Extreme Demonok</button><button class="tab" data-t="ins">Insane Demonok</button><button class="rbtn alt" id="irev">Legnehezebb elöl ⇅</button></div>
 <input id="q" type="search" placeholder="Keresés a pályák között…">
-<button class="rbtn" id="rbtn">🎲 Randomizer</button><button class="rbtn alt" id="rtbtn" style="margin:10px 0 0 8px;display:none">📝 Pont rögzítése</button>
+<button class="rbtn" id="rbtn">🎲 Randomizer</button><button class="rbtn alt" id="rtbtn" style="margin:10px 0 0 8px;display:none">📝 Pont rögzítése</button><button class="rbtn alt" id="smbtn" style="margin:10px 0 0 8px;display:none">📊 Összesítés</button>
 <div id="cnt"></div>
 <div id="fallback">A böngésző nem tudta automatikusan betölteni a <b>levels.json</b> fájlt (fájlként megnyitott oldalnál ez normális). Válaszd ki kézzel: <input id="file" type="file" accept=".json"></div>
 </header>
 <main><div id="list"></div><div id="ilist" style="display:none"></div></main>
 <dialog id="rd"></dialog>
 <dialog id="rt"></dialog>
+<dialog id="sm"></dialog>
 <footer><p>Ha az AREDL nem elérhető, a levels.json a tartalék. Mezői: <code>rank</code>, <code>name</code>, <code>thumbnail</code> (képlink; ha üres, generált splash art jelenik meg).</p></footer>
 <script>
 let LEVELS=[];
@@ -267,14 +279,23 @@ async function fetchSaved(){
   SYNC="Betöltés a táblázatból…";
   try{const r=await fetch(SHEET_URL);if(!r.ok)throw 0;const d=await r.json();ROWS=Array.isArray(d)?d.filter(x=>x&&x.player):[];SYNC=""}
   catch(e){SYNC="A táblázat nem érhető el."}}
-const DRAWS=()=>ROWS.filter(r=>!r.status||r.status==="Kapott");
+const DRAWS=()=>ROWS.filter(r=>(r.status||"Kapott")!=="Csapat"&&r.config!=="retro");
 const n2=s=>String(s==null?"":s).trim().toLowerCase();
+function applyLocal(obj,now){
+  const want=owner({player:obj.player});
+  for(let i=ROWS.length-1;i>=0;i--){const r=ROWS[i];
+    if((r.status||"Kapott")!=="Kapott"||String(r.map)!==String(obj.map))continue;
+    const o=owner(r);if(o.team!==want.team||o.who!==want.who)continue;
+    r.status=obj.status;r.points=obj.points;r.closed=now;if(obj.enjoyment!=null)r.enjoyment=obj.enjoyment;return true}
+  return false}
 function send(obj){
   if(!SHEET_URL){SAVE_MSG="⚠ Nincs beállítva a Google Sheet URL, az eredmény nem mentődik.";return Promise.resolve()}
   SAVE_MSG="Mentés…";
   const upd=()=>{const e=document.getElementById("sv");if(e)e.textContent=SAVE_MSG};
   return fetch(SHEET_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(obj)})
-    .then(()=>{SAVE_MSG="Elmentve a táblázatba ✓";ROWS.push(obj);upd();updateTeamBox()})
+    .then(()=>{SAVE_MSG="Elmentve a táblázatba ✓";const now=new Date().toISOString(),ev=obj.status==="Teljesítve"||obj.status==="Kihagyva";
+      if(!(ev&&obj.config!=="retro"&&applyLocal(obj,now)))ROWS.push(Object.assign({time:now},obj,ev?{closed:now}:{}));
+      upd();updateTeamBox()})
     .catch(()=>{SAVE_MSG="⚠ A mentés nem sikerült.";upd()})}
 function postRow(name,x){return send({player:name,rank:x.rank,map:keyOf(x),status:"Kapott",points:0})}
 // tulajdonos: ki kapta a sort (csapatsornál a "| név" rész)
@@ -336,7 +357,7 @@ function cfgHTML(){
   </div>`}
 const rd=document.getElementById("rd");
 let U=null;
-const R={dbl:{on:false,list:"ext",dir:"hard",n:75},dblInit:false,pts:{},opp:{t:"none",n:""},cfgEdit:false,prefTeam:"",src:"ext",itiers:[],itiersInit:false,mode:"solo",team:"",members:"",pool:{main:true,ext:false,rest:false},custom:{on:false,from:1,to:75},cur:null,drawn:[],entry:null};
+const R={enj:"",note:"",dbl:{on:false,list:"ext",dir:"hard",n:75},dblInit:false,pts:{},opp:{t:"none",n:""},cfgEdit:false,prefTeam:"",src:"ext",itiers:[],itiersInit:false,mode:"solo",team:"",members:"",pool:{main:true,ext:false,rest:false},custom:{on:false,from:1,to:75},cur:null,drawn:[],entry:null};
 function srcList(){return R.src==="ins"?INS.list:LEVELS}
 const keyOf=x=>x.tier!==undefined?x.name+" (Insane)":x.name;
 function poolItems(){
@@ -379,6 +400,7 @@ function syncBoxes(){
   const tb=document.getElementById("tmbox"),db=document.getElementById("dblbox");
   if(tb)tb.style.display=team?"block":"none";
   if(db)db.style.display=(!team||!locked)?"block":"none"}
+const enjOk=v=>String(v).trim()!==""&&Number.isFinite(Number(v))&&Number(v)>=0&&Number(v)<=10;
 function keepInputs(){
   rd.querySelectorAll("[data-pm]").forEach(i=>{const v=parseInt(i.value);R.pts[i.dataset.pm]=Number.isFinite(v)?v:10});
   const onEl=document.getElementById("on");if(onEl)R.opp.n=onEl.value;
@@ -491,22 +513,29 @@ async function rRoll(){
   rResult()}
 function rResult(msg=""){
   const who=R.mode==="team"?"Csapat"+(R.team.trim()?": "+esc(R.team.trim()):""):"Egyjátékos: "+esc(U.name);
+  const note=R.note||"";R.note="";
   const st=curStatus(),pts=pointsFor(),pending=SAVING()&&R.cur&&!st;
   const stTxt=st==="done"?"✅ Teljesítve":st==="skip"?"⏭ Kihagyva":"Még nem teljesítetted";
   rd.innerHTML=`<h2>${who}</h2><div class="sub">${(R.cur?R.cur.tier!==undefined:R.src==="ins")?"Insane Demonok":"Extreme Demonok"}</div>
+  ${note?`<p class="sub" style="font-weight:600">${esc(note)}</p>`:""}
   <div id="rres">${R.cur?cardHTML(R.cur):""}</div>
   ${msg?`<p class="err">${msg}</p>`:""}
   ${SAVING()?`${R.cur?`<p class="sub">${stTxt}</p>`:""}${scoreHTML()}<p class="sub">Eddig kapott pályák (mentve): ${R.entry.maps.map(m=>"#"+m.rank+" "+esc(m.name)).join(", ")}</p><p class="sub" id="sv">${esc(SAVE_MSG)}</p>`:`<p class="sub">Vendégként az eredmények nem mentődnek.</p>`}
+  ${pending?`<div class="cfg" style="margin-top:14px"><div class="lbl">Élvezhetőség (kötelező)</div>
+    <div class="prow"><span>Mennyire volt élvezhető a pálya?</span><span><input type="number" id="enj" min="0" max="10" step="0.5" placeholder="0–10" value="${esc(R.enj)}"> / 10</span></div>
+    <div class="sub" style="font-size:12px;margin-top:6px">Amíg nem adod meg, nem léphetsz tovább a következő pályára.</div></div>`:""}
   <div class="acts" style="flex-wrap:wrap">
-    ${pending?`<button class="rbtn" id="done">✅ Teljesítettem (+${pts} pont${isDouble(R.cur,R.mode==="team"?R.team:null)?", dupla!":""})</button><button class="rbtn alt" id="skip">⏭ Kihagyom</button>`:""}
+    ${pending?`<button class="rbtn" id="done" ${enjOk(R.enj)?"":"disabled"}>✅ Teljesítettem (+${pts} pont${isDouble(R.cur,R.mode==="team"?R.team:null)?", dupla!":""})</button><button class="rbtn alt" id="skip" ${enjOk(R.enj)?"":"disabled"}>⏭ Kihagyom</button>`:""}
     ${!pending&&(R.cur||SAVING())?`<button class="rbtn" id="again">${SAVING()?"Következő pálya":"Újrasorsolás"}</button>`:""}
     <button class="rbtn alt" id="back">Beállítások</button><button class="rbtn alt" id="cl">Bezár</button>
   </div>`;
   const ag=document.getElementById("again");if(ag)ag.onclick=rRoll;
   const dn=document.getElementById("done");
-  if(dn)dn.onclick=()=>{dn.disabled=true;send({player:labelOf(),rank:R.cur.rank,map:keyOf(R.cur),status:"Teljesítve",points:pts}).then(()=>rResult())};
+  if(dn)dn.onclick=()=>{if(!enjOk(R.enj))return;const en=Number(R.enj);dn.disabled=true;send({player:labelOf(),rank:R.cur.rank,map:keyOf(R.cur),status:"Teljesítve",points:pts,enjoyment:en}).then(()=>{R.note="✅ Teljesítve: +"+pts+" pont · élvezhetőség: "+en+"/10";R.enj="";return rRoll()})};
   const sk=document.getElementById("skip");
-  if(sk)sk.onclick=()=>{sk.disabled=true;send({player:labelOf(),rank:R.cur.rank,map:keyOf(R.cur),status:"Kihagyva",points:0}).then(()=>rRoll())};
+  if(sk)sk.onclick=()=>{if(!enjOk(R.enj))return;const en=Number(R.enj);sk.disabled=true;send({player:labelOf(),rank:R.cur.rank,map:keyOf(R.cur),status:"Kihagyva",points:0,enjoyment:en}).then(()=>{R.note="⏭ Kihagyva · élvezhetőség: "+en+"/10";R.enj="";return rRoll()})};
+  const enE=document.getElementById("enj");
+  if(enE)enE.oninput=()=>{R.enj=enE.value;const ok=enjOk(R.enj);["done","skip"].forEach(id=>{const b=document.getElementById(id);if(b)b.disabled=!ok})};
   document.getElementById("back").onclick=()=>rSetup();
   document.getElementById("cl").onclick=()=>rd.close();
   if(R.cur&&R.cur.tier===undefined){const c=R.cur;ensureLevel(c).then(()=>refresh(c.rank))}}
@@ -592,13 +621,14 @@ function myTeam(){
   ROWS.forEach(r=>{const t=parseTeamRow(r);
     if(!t||t.name.toLowerCase()!==key||!t.members.some(s=>s.toLowerCase()===me))return;
     t.members.forEach(s=>names.set(s.toLowerCase(),s));
-    if(!r.status||r.status==="Kapott")latest.set(t.who.toLowerCase(),r)});
+    if((r.status||"Kapott")!=="Csapat"&&r.config!=="retro")latest.set(t.who.toLowerCase(),r)});
   names.delete(me);
   return {name:team.name,
     mates:[...names.entries()].map(([k,n])=>({name:n,row:latest.get(k)||null})),
     mine:latest.get(me)||null}}
 function updateTeamBox(){
   const el=document.getElementById("teamBox"),t=myTeam();
+  const sb=document.getElementById("smbtn");if(sb)sb.style.display=isParticipant()?"inline-block":"none";
   if(!t){el.style.display="none";el.innerHTML="";return}
   const mp=r=>r?"#"+esc(String(r.rank))+" "+esc(String(r.map)):"még nincs pályája";
   const cfg=teamCfg(t.name)||{},tp=teamPts(t.name);
@@ -634,9 +664,108 @@ async function refreshTeam(){
   await fetchSaved();updateTeamBox();showSaved()}
 setInterval(()=>{if(!document.hidden)refreshTeam()},30000);
 
+// ---------- Összesítés (csak a versenyzőknek) ----------
+const SKIPS=3;
+
+function aggregateSummary(rows, parse) {
+  const teams = new Map(), recv = new Map();
+  const tms = x => { const d = new Date(x).getTime(); return isNaN(d) ? 0 : d; };
+  const byTime = (a, b) => tms(a.time) - tms(b.time);
+  const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+  rows.forEach(r => {
+    const t = parse(r); if (!t) return;
+    const st = r.status || 'Kapott', tk = t.name.toLowerCase();
+    let T = teams.get(tk); if (!T) { T = { name: t.name, players: new Map() }; teams.set(tk, T); }
+    t.members.forEach(m => { const k = m.toLowerCase(); if (!T.players.has(k)) T.players.set(k, { name: m, items: new Map() }); });
+    if (st === 'Csapat') return;
+    const wk = t.who.toLowerCase();
+    let P = T.players.get(wk); if (!P) { P = { name: t.who, items: new Map() }; T.players.set(wk, P); }
+    const key = String(r.map), hasRank = r.rank !== '' && r.rank != null;
+    let e = P.items.get(key);
+    if (!e) { e = { map: key, rank: hasRank ? Number(r.rank) : null, state: 'prog', pts: 0, time: r.time, drawn: false }; P.items.set(key, e); }
+    const retro = r.config === 'retro';
+    if (st === 'Kapott') e.drawn = true;
+    else if (st === 'Teljesítve') { e.state = 'done'; e.pts = Number(r.points) || 0; e.time = r.closed || r.time; if (!retro) e.drawn = true; if (hasRank) e.rank = Number(r.rank); }
+    else if (st === 'Kihagyva') { e.state = 'skip'; e.time = r.closed || r.time; if (!retro) e.drawn = true; }
+  });
+  const out = { teams: [], common: [] };
+  teams.forEach(T => {
+    const players = [];
+    T.players.forEach(P => {
+      const items = [...P.items.values()];
+      const done = items.filter(e => e.state === 'done').sort(byTime);
+      const prog = items.filter(e => e.state === 'prog').sort(byTime);
+      const skips = items.filter(e => e.state === 'skip').sort(byTime);
+      items.forEach(e => {
+        if (!e.drawn) return;
+        const v = recv.get(e.map) || { map: e.map, rank: e.rank, who: [] };
+        v.who.push(P.name + ' (' + T.name + ')'); recv.set(e.map, v);
+      });
+      players.push({
+        name: P.name, done, prog, skips,
+        pts: done.reduce((s, e) => s + e.pts, 0),
+        avg: avg(done.filter(e => e.rank != null).map(e => e.rank)),
+        used: skips.length, left: Math.max(0, SKIPS - skips.length)
+      });
+    });
+    const all = [].concat(...players.map(p => p.done));
+    out.teams.push({
+      name: T.name, players, count: all.length,
+      avg: avg(all.filter(e => e.rank != null).map(e => e.rank)),
+      pts: all.reduce((s, e) => s + e.pts, 0)
+    });
+  });
+  out.teams.sort((a, b) => b.pts - a.pts);
+  recv.forEach(v => { if (v.who.length >= 2) out.common.push(v); });
+  out.common.sort((a, b) => (a.rank == null ? 1e9 : a.rank) - (b.rank == null ? 1e9 : b.rank));
+  return out;
+}
+
+function isParticipant(){
+  if(!SAVING())return false;const me=n2(U.name);
+  return ROWS.some(r=>{const t=parseTeamRow(r);return t&&(t.members.some(s=>n2(s)===me)||n2(t.who)===me)})}
+const sm=document.getElementById("sm");
+const TCOL=[["#1B365D","#D9E2EC"],["#2C5E4F","#D8EAE5"],["#6B21A8","#EDE4F5"],["#9A3412","#FBE6DC"]];
+const f2=x=>x==null?"–":String(Math.round(x*100)/100);
+function fmtT(t){const d=new Date(t);if(isNaN(d))return "";const p=n=>String(n).padStart(2,"0");
+  return d.getFullYear()+"."+p(d.getMonth()+1)+"."+p(d.getDate())+". "+p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds())}
+function renderSummary(){
+  const close=()=>{document.getElementById("smcl").onclick=()=>sm.close()};
+  if(!isParticipant()){
+    sm.innerHTML='<h2>📊 Összesítés</h2><p class="sub">Az összesítést csak a versenyben részt vevő játékosok láthatják.</p><div class="acts"><button class="rbtn alt" id="smcl">Bezár</button></div>';
+    return close()}
+  const S=aggregateSummary(ROWS,parseTeamRow),td=(v,c)=>`<td${c?' class="c"':""}>${v}</td>`;
+  const teamBlock=(T,i)=>{const col=TCOL[i%TCOL.length];
+    return `<div class="smteam"><div class="smhead" style="background:${col[0]}">CSAPAT: ${esc(T.name)} (${T.pts} pont | Átl. rang: ${f2(T.avg)})</div>`+
+    T.players.map(p=>{
+      const rows=p.done.concat(p.prog).map((e,k)=>`<tr>${td(k+1,1)}<td><b>${esc(e.map)}</b></td>${td(e.rank==null?"":e.rank,1)}${td(e.state==="done"?"<b>"+e.pts+"</b>":"<b>Folyamatban</b>",1)}${td(fmtT(e.time),1)}</tr>`).join("");
+      return `<div class="smpl" style="background:${col[1]}">${esc(p.name)} – ${p.done.length} kész pálya | ${p.pts} pont | Átl. rang: ${f2(p.avg)} | Skip: ${p.left}/${SKIPS}</div>
+      <div class="smwrap"><table class="smt"><tr><th class="c">#</th><th>Pálya</th><th class="c">Rang</th><th class="c">Pont</th><th class="c">Időpont</th></tr>${rows}</table></div>`}).join("")+"</div>"};
+  const bar=(t,c)=>`<div class="smbar" style="background:${c}">${t}</div>`;
+  const teamRows=S.teams.map((T,i)=>`<tr style="background:${TCOL[i%TCOL.length][1]};color:#0F172A;font-weight:700"><td>${esc(T.name)}</td>${td(T.count,1)}${td(f2(T.avg),1)}${td(T.pts,1)}</tr>`).join("");
+  const plRows=S.teams.map(T=>T.players.map(p=>`<tr><td>${esc(T.name)}</td><td><b>${esc(p.name)}</b></td>${td(p.done.length,1)}${td(p.used+" / "+p.left+" maradt",1)}${td(f2(p.avg),1)}${td(p.pts,1)}</tr>`).join("")).join("");
+  const comRows=S.common.map((c,i)=>`<tr>${td(i+1,1)}<td><b>${esc(c.map)}</b></td>${td(c.rank==null?"":c.rank,1)}<td>${c.who.map(esc).join(", ")}</td></tr>`).join("");
+  const skipHtml=S.teams.map(T=>T.players.map(p=>`<div class="smpl" style="background:#FEF3C7;color:#78350F">${esc(p.name)} (${esc(T.name)}) – ${p.used} használt / ${p.left} maradt</div>`+
+    (p.skips.length?`<div class="smwrap"><table class="smt"><tr><th class="c">#</th><th>Pálya</th><th class="c">Rang</th><th>Skip megjegyzés</th><th class="c">Időpont</th></tr>${p.skips.map((e,k)=>`<tr>${td(k+1,1)}<td><b>${esc(e.map)}</b></td>${td(e.rank==null?"":e.rank,1)}<td>Skip</td>${td(fmtT(e.time),1)}</tr>`).join("")}</table></div>`
+      :`<div class="sub" style="padding:6px 12px">Nincs elhasznált skip (${p.left}/${SKIPS} elérhető)</div>`)).join("")).join("");
+  sm.innerHTML=`<h2>📊 Összesítés</h2>
+  ${S.teams.length?`<div class="smteams">${S.teams.map(teamBlock).join("")}</div>
+  ${bar("CSAPAT ÉS EGYÉNI ÁTLAGOS RANG, SKIP ÁLLÁS ("+SKIPS+"/FŐ) ÉS ÖSSZESÍTÉS","#334155")}
+  <div class="smwrap"><table class="smt"><tr><th>Csapat</th><th class="c">Teljesített pályák</th><th class="c">Csapat átlagos rang</th><th class="c">Csapat összes pont</th></tr>${teamRows}</table></div>
+  <div class="smwrap" style="margin-top:14px"><table class="smt"><tr><th>Csapat</th><th>Játékos</th><th class="c">Teljesített</th><th class="c">Skip (használt / maradt)</th><th class="c">Átlagos rang</th><th class="c">Összes pont</th></tr>${plRows}</table></div>
+  ${bar("KÖZÖS PÁLYÁK (2 VAGY TÖBB JÁTÉKOS IS MEGKAPTA – "+S.common.length+" PÁLYA)","#3730A3")}
+  ${S.common.length?`<div class="smwrap"><table class="smt"><tr><th class="c">#</th><th>Pálya</th><th class="c">Rang</th><th>Kik kapták meg</th></tr>${comRows}</table></div>`:'<div class="sub">Még nincs közös pálya.</div>'}
+  ${bar("ELHASZNÁLT SKIPEK EMBERENKÉNT ("+SKIPS+" SKIP / FŐ – 0 PONT)","#78350F")}${skipHtml}`:'<p class="sub">Még nincs csapatadat.</p>'}
+  <div class="acts"><button class="rbtn alt" id="smcl">Bezár</button></div>`;
+  close()}
+document.getElementById("smbtn").onclick=()=>{
+  if(!isParticipant())return;
+  renderSummary();sm.showModal();
+  fetchSaved().then(()=>{updateTeamBox();if(sm.open)renderSummary()})};
+
 // ---------- Utólagos pontrögzítés ----------
 const rt=document.getElementById("rt");
-const RT={src:"ext",ctx:"solo",name:"",pts:""};
+const RT={src:"ext",ctx:"solo",name:"",pts:"",enj:""};
 const teamLabelFor=t=>"Csapat: "+t.name.slice(0,24)+" ("+[U.name,...t.mates.map(m=>m.name)].join(", ").slice(0,50)+") | "+U.name;
 function retroFind(){return (RT.src==="ins"?INS.list:LEVELS).find(l=>n2(l.name)===n2(RT.name))}
 function retroRender(msg="",ok=false){
@@ -654,16 +783,20 @@ function retroRender(msg="",ok=false){
   <div class="lbl">Pont</div>
   <input type="number" id="rp" min="0" max="100000" placeholder="${auto!=null?auto:"pl. 10"}" value="${esc(RT.pts)}">
   <div class="sub" style="margin-top:6px">${x?"#"+x.rank+" "+esc(x.name)+" – automatikus pont: <b>"+auto+"</b>"+(isDouble(x,tn)?" (dupla)":"")+". Hagyd üresen, ha ezt szeretnéd.":"Ismeretlen pálya: add meg a pontot kézzel."}</div>
+  <div class="lbl">Élvezhetőség (kötelező)</div>
+  <div class="prow"><span>Mennyire volt élvezhető a pálya?</span><span><input type="number" id="re" min="0" max="10" step="0.5" placeholder="0–10" value="${esc(RT.enj)}"> / 10</span></div>
   <div class="${ok?"sub":"err"}" style="margin-top:12px">${msg}</div>
   <div class="acts"><button class="rbtn" id="rgo">Rögzítés</button><button class="rbtn alt" id="rcl">Bezár</button></div>`;
   const rn=document.getElementById("rn");rn.oninput=()=>{RT.name=rn.value};rn.onchange=()=>{RT.name=rn.value;retroRender()};
   const rp=document.getElementById("rp");rp.oninput=()=>{RT.pts=rp.value};
+  const re=document.getElementById("re");re.oninput=()=>{RT.enj=re.value};
   rt.querySelectorAll(".seg.rs label").forEach(l=>l.onclick=e=>{e.preventDefault();RT.src=l.dataset.s;if(RT.src==="ins"&&!INS.loaded)loadInsane().then(()=>retroRender());retroRender()});
   rt.querySelectorAll(".seg.rc label").forEach(l=>l.onclick=e=>{e.preventDefault();RT.ctx=l.dataset.c;retroRender()});
   document.getElementById("rcl").onclick=()=>rt.close();
   document.getElementById("rgo").onclick=()=>{
-    RT.name=rn.value;RT.pts=rp.value;
+    RT.name=rn.value;RT.pts=rp.value;RT.enj=re.value;
     const nm=RT.name.trim();if(!nm)return retroRender("Add meg a pálya nevét.");
+    if(!enjOk(RT.enj))return retroRender("Add meg az élvezhetőséget (0–10 között).");
     const f=retroFind(),pv=RT.pts.trim()===""?null:Number(RT.pts);
     if(pv!==null&&(!Number.isFinite(pv)||pv<0))return retroRender("Érvénytelen pontszám.");
     const pts=pv!==null?pv:(f?calcPts(f,tn):null);
@@ -672,8 +805,8 @@ function retroRender(msg="",ok=false){
     if(ROWS.some(r=>{const o=owner(r);return r.status==="Teljesítve"&&String(r.map)===key&&o.who===me&&o.team===tk}))
       return retroRender("Ezt a pályát már rögzítetted.");
     document.getElementById("rgo").disabled=true;
-    send({player:useTeam?teamLabelFor(team):U.name,rank:f?f.rank:"",map:key,status:"Teljesítve",points:pts})
-      .then(()=>{RT.name="";RT.pts="";retroRender("✅ Rögzítve: "+key+" (+"+pts+" pont).",true)})}}
+    send({player:useTeam?teamLabelFor(team):U.name,rank:f?f.rank:"",map:key,status:"Teljesítve",points:pts,config:"retro",enjoyment:Number(RT.enj)})
+      .then(()=>{RT.name="";RT.pts="";RT.enj="";retroRender("✅ Rögzítve: "+key+" (+"+pts+" pont).",true)})}}
 document.getElementById("rtbtn").onclick=()=>{if(!SAVING())return;fetchSaved().then(()=>updateTeamBox());retroRender();rt.showModal()};
 
 // ---------- Belépés ----------
@@ -685,7 +818,7 @@ function applyUser(){
   document.getElementById("gate").style.display=U?"none":"flex";
   document.getElementById("who").innerHTML=U?`👤 <b>${esc(U.name)}</b>${U.guest?" (vendég)":""}<a href="#" id="lo">Kilépés</a>`:"";
   const lo=document.getElementById("lo");
-  if(lo)lo.onclick=e=>{e.preventDefault();try{sessionStorage.removeItem("gd_user")}catch(_){}if(rd.open)rd.close();if(rt.open)rt.close();U=null;document.getElementById("gu").value="";applyUser()}}
+  if(lo)lo.onclick=e=>{e.preventDefault();try{sessionStorage.removeItem("gd_user")}catch(_){}if(rd.open)rd.close();if(rt.open)rt.close();if(sm.open)sm.close();U=null;document.getElementById("gu").value="";applyUser()}}
 function setUser(u){U=u;try{sessionStorage.setItem("gd_user",JSON.stringify(u))}catch(e){}applyUser()}
 function doLogin(){
   const n=document.getElementById("gu").value.trim();
