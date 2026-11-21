@@ -297,7 +297,19 @@ function send(obj){
       if(!(ev&&obj.config!=="retro"&&applyLocal(obj,now)))ROWS.push(Object.assign({time:now},obj,ev?{closed:now}:{}));
       upd();updateTeamBox()})
     .catch(()=>{SAVE_MSG="⚠ A mentés nem sikerült.";upd()})}
-function postRow(name,x){return send({player:name,rank:x.rank,map:keyOf(x),status:"Kapott",points:0})}
+function postRow(name,x,pct){return send({player:name,rank:x.rank,map:keyOf(x),status:"Kapott",points:0,pct:pct})}
+// Szükséges %: az eddig (nem utólag rögzített) teljesített pályák száma + 1 – kihagyáskor nem nő
+function doneCount(){
+  const tm=R.mode==="team"?n2(R.team):"",me=n2(U.name);
+  return ROWS.filter(r=>{if(r.status!=="Teljesítve"||r.config==="retro")return false;const o=owner(r);return o.team===tm&&o.who===me}).length}
+const nextPct=()=>doneCount()+1;
+function curPct(){
+  if(!R.cur)return null;
+  const tm=R.mode==="team"?n2(R.team):"",me=n2(U.name),key=keyOf(R.cur);
+  for(let i=ROWS.length-1;i>=0;i--){const r=ROWS[i];
+    if((r.status||"Kapott")!=="Kapott"||String(r.map)!==key)continue;
+    const o=owner(r);if(o.team===tm&&o.who===me&&Number(r.pct)>0)return Number(r.pct)}
+  return nextPct()}
 // tulajdonos: ki kapta a sort (csapatsornál a "| név" rész)
 function owner(r){const t=parseTeamRow(r);return t?{team:t.name.toLowerCase(),who:t.who.toLowerCase()}:{team:"",who:n2(r.player)}}
 function sumPts(f){return ROWS.filter(r=>r.status==="Teljesítve"&&f(owner(r))).reduce((a,r)=>a+(Number(r.points)||0),0)}
@@ -509,7 +521,7 @@ async function rRoll(){
   R.cur=c[Math.floor(Math.random()*c.length)];
   if(SAVING()){
     R.drawn.push(keyOf(R.cur));R.entry.maps.push({rank:R.cur.rank,name:keyOf(R.cur)});
-    postRow(labelOf(),R.cur)}
+    postRow(labelOf(),R.cur,nextPct())}
   rResult()}
 function rResult(msg=""){
   const who=R.mode==="team"?"Csapat"+(R.team.trim()?": "+esc(R.team.trim()):""):"Egyjátékos: "+esc(U.name);
@@ -519,6 +531,7 @@ function rResult(msg=""){
   rd.innerHTML=`<h2>${who}</h2><div class="sub">${(R.cur?R.cur.tier!==undefined:R.src==="ins")?"Insane Demonok":"Extreme Demonok"}</div>
   ${note?`<p class="sub" style="font-weight:600">${esc(note)}</p>`:""}
   <div id="rres">${R.cur?cardHTML(R.cur):""}</div>
+  ${pending?`<p style="font-size:16px;margin:6px 0 0">🎯 Ezen a pályán legalább <b>${curPct()}%</b>-ot kell megcsinálnod.</p>`:""}
   ${msg?`<p class="err">${msg}</p>`:""}
   ${SAVING()?`${R.cur?`<p class="sub">${stTxt}</p>`:""}${scoreHTML()}<p class="sub">Eddig kapott pályák (mentve): ${R.entry.maps.map(m=>"#"+m.rank+" "+esc(m.name)).join(", ")}</p><p class="sub" id="sv">${esc(SAVE_MSG)}</p>`:`<p class="sub">Vendégként az eredmények nem mentődnek.</p>`}
   ${pending?`<div class="cfg" style="margin-top:14px"><div class="lbl">Élvezhetőség (kötelező)</div>
@@ -638,7 +651,7 @@ function updateTeamBox(){
     sc+=`<div>⚔ ${esc(cfg.o.n)} ellen: <b>${tp} – ${op}</b></div>`}
   el.innerHTML=`<div class="t">👥 Csapat: ${esc(t.name)}</div>
   <div>Csapattársaid:${t.mates.length?t.mates.map(m=>`<div>• <b>${esc(m.name)}</b> – ${mp(m.row)}</div>`).join(""):" –"}</div>
-  <div style="margin-top:4px">Következő pályád: <b>${t.mine?mp(t.mine):"még nem sorsoltál"}</b></div>${sc}${t.mine?'<div class="sub" style="font-size:11px;margin-top:6px">↳ kattints a pályádhoz és az újrasorsoláshoz</div>':""}`;
+  <div style="margin-top:4px">Következő pályád: <b>${t.mine?mp(t.mine)+(Number(t.mine.pct)>0?" – legalább "+esc(String(t.mine.pct))+"%":""):"még nem sorsoltál"}</b></div>${sc}${t.mine?'<div class="sub" style="font-size:11px;margin-top:6px">↳ kattints a pályádhoz és az újrasorsoláshoz</div>':""}`;
   el.style.display="block"}
 async function openMyResult(){
   const t=myTeam();if(!t||!t.mine)return;
